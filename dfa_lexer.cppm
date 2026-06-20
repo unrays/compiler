@@ -66,16 +66,20 @@ enum class LexingStateType {
 /***********************************************************************************/
 
 template<auto...>
-struct dfa_entry;
+struct dfa_transition;
 
 template<auto Source, auto Predicate, auto Target>
-struct dfa_entry<Source, Predicate, Target> {
+struct dfa_transition<Source, Predicate, Target> {
 
     static constexpr auto source = Source;
 
     static constexpr auto predicate = Predicate;
     static constexpr auto target = Target;
 };
+
+template<auto Source, auto Predicate, auto Target>
+struct ENABLED : dfa_transition<Source, Predicate, Target> {};
+
 
 
 template<LexingStateType Source, char Predicate, LexingStateType Target>
@@ -110,10 +114,9 @@ struct ExceptionFallback {
     }
 };
 
-// le exception fallback est inutile, si tu met rien, il prends entry pour le fallback
-template<typename Fallback = ExceptionFallback, typename... Entries>
-struct DFA {
-public:
+template<typename Fallback, typename... Entries>
+struct DeterministicFiniteAutomaton final {
+protected:
     static constexpr auto evaluate_recursively(const auto& state, const auto& argument) {
         return Fallback::run(state, argument);
     }
@@ -121,15 +124,16 @@ public:
     template<typename Current, typename... Remaining>
     static constexpr auto evaluate_recursively(const auto& state, const auto& argument) {
         if (state == Current::source && argument == Current::predicate)
-            return Current::target;
+            [[unlikely]] return Current::target;
 
         return evaluate_recursively<Remaining...>(state, argument);
     }
 
-    template<typename T, typename U>
-    static constexpr auto step(const T state, const U argument) noexcept {
+public:
+    static constexpr auto step(const auto& state, const auto& argument) noexcept {
         return evaluate_recursively<Entries...>(state, argument);
     }
+
 };
 
 // n'est pas autant optimal que switch mais plus flexible
@@ -223,10 +227,10 @@ struct LexingAutomaton final {
 // utiliser ENABLED, DISABLED, ETC...
 
 export int main2() {
-    using Automaton = DFA<
+    using Automaton = DeterministicFiniteAutomaton<
         InvalidEnumStateFallback<LexingStateType::STATE_INVALID>,
 
-        dfa_entry<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
+        dfa_transition<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
     >;
 
     Automaton dfaA;
