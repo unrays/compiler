@@ -102,38 +102,47 @@ struct dfa_entry_for_enum {
 
 template<auto V>
 struct InvalidEnumStateFallback {
-    static constexpr auto run(const auto, const auto) {
+    [[nodiscard]] static constexpr auto run(const auto, const auto) noexcept {
         return V;
     }
 };
 
-
 struct ExceptionFallback {
-    static constexpr auto run(auto, auto) {
+    [[noreturn]] static constexpr auto run(auto, auto) noexcept {
         throw std::runtime_error("no transition");
     }
 };
 
+
 template<typename Fallback, typename... Entries>
 struct DeterministicFiniteAutomaton final {
 protected:
-    static constexpr auto evaluate_recursively(const auto& state, const auto& argument) {
+    [[nodiscard]] static constexpr auto resolve_recursively(const auto& state, const auto& argument)
+        noexcept(noexcept(Fallback::run(state, argument)))
+    {
         return Fallback::run(state, argument);
     }
 
     template<typename Current, typename... Remaining>
-    static constexpr auto evaluate_recursively(const auto& state, const auto& argument) {
+    [[nodiscard]] static constexpr auto resolve_recursively(const auto& state, const auto& argument)
+        noexcept(
+            noexcept(state == Current::source) &&
+            noexcept(argument == Current::predicate) &&
+            noexcept(resolve_recursively<Remaining...>(state, argument))
+        )
+    {
         if (state == Current::source && argument == Current::predicate)
             [[unlikely]] return Current::target;
 
-        return evaluate_recursively<Remaining...>(state, argument);
+        return resolve_recursively<Remaining...>(state, argument);
     }
 
 public:
-    static constexpr auto step(const auto& state, const auto& argument) noexcept {
-        return evaluate_recursively<Entries...>(state, argument);
+    [[nodiscard]] static constexpr auto step(const auto& state, const auto& argument)
+        noexcept(noexcept(resolve_recursively<Entries...>(state, argument)))
+    {
+        return resolve_recursively<Entries...>(state, argument);
     }
-
 };
 
 // n'est pas autant optimal que switch mais plus flexible
@@ -227,7 +236,7 @@ struct LexingAutomaton final {
 // utiliser ENABLED, DISABLED, ETC...
 
 export int main2() {
-    using Automaton = DeterministicFiniteAutomaton<
+    using Automaton = DeterministicFiniteAutomaton <
         InvalidEnumStateFallback<LexingStateType::STATE_INVALID>,
 
         dfa_transition<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
