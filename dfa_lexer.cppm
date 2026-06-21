@@ -1,6 +1,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <chrono>
+#include <array>
 
 export module dfa_lexer;
 
@@ -145,11 +146,172 @@ public:
     }
 };
 
+// il parait que const auto& est sous optimal et moins efficace que simple copie
+
 // n'est pas autant optimal que switch mais plus flexible
 // il est O(n) n étant le nombre d'itérations avant la correspondance
 
 // mais pour peu de entries, c'est a peu près la meme chose qu'un switch niveau perf.
   
+
+/******************************************************************************/
+
+
+template<std::size_t N> // peut etre mettre 2 dimensions
+struct CompileTimeDFA {
+public:
+    constexpr CompileTimeDFA() {
+        //table.fill(-1); // faut fill les sous tables, pas la table elle-même
+
+
+    }
+
+public:
+    [[nodiscard]] static constexpr int step(int state, int argument) {
+        return table[state][argument];
+    }
+
+private:
+
+    // 0 -> 10 -> 18
+
+    // k1: 0
+    // k2: 10
+    // res: 18
+
+    //static constexpr std::array<std::array<int, N>, N> table{};
+
+
+    static constexpr auto table = [] {
+        std::array<std::array<int, N>, N> t{};
+
+        if constexpr (N > 10) {
+            t[0][10] = 42;
+        }
+
+        return t;
+    }();
+
+   /* static constexpr auto data = [] {
+        std::array<std::array<int, N>, N> tablee{};
+
+        tablee[0][10] = 18;
+
+        return tablee;
+    }();*/
+
+
+};
+
+
+
+/**************************************************************/
+
+/*
+            input
+           0   1   2
+    state
+    0      10  11  12
+    1      20  21  22  ---->  state * N + input
+    2      30  31  32
+*/
+
+// static constexpr auto source = Source;
+// static constexpr auto predicate = Predicate;
+// static constexpr auto target = Target;
+
+// peut etre mettre genre valeur max genre maximum de char ou de enum automatiquement
+template<std::size_t X, std::size_t Y, typename... Entries> // mettre aussi les types admis
+struct CompileTimeDfa2 {
+public:
+
+    //table[state * N + input]
+
+
+    // genre is_catable_to_int, on recoit des types, pas des int directement
+
+
+public:
+    [[nodiscard]] static constexpr int step_raw(int state, int input) {
+        return table[state * X + input];
+    }
+
+
+    // must be castable to integer, le return type mettre le type d'entrée state
+
+
+
+    // OK JE DEVRAIS FAIRE DEUX MODULES, EN GROS YA LE COMPILE TIME DFA ET 
+    // YA UN WRAPPER PAR DESSUS QUI EFFECTUE TOUT LE TRUC CHIANT AVEC LES MODULES
+
+    template<typename Tp, typename Up>
+    requires std::convertible_to<Tp, int> &&
+             std::convertible_to<Up, int> &&
+             std::convertible_to<int, Tp>
+    [[nodiscard]] static constexpr Tp step(Tp state, Up input) noexcept {
+        return static_cast<Tp>(
+            table[static_cast<int>(state) * X + static_cast<int>(input)]
+        );
+    }
+
+public:
+    
+    static constexpr auto table = [] {
+        std::array<int, X * Y> t{};
+
+        if constexpr (X * Y > 10) { // teporaire mock
+
+       
+        ((
+            t[static_cast<int>(Entries::source) * X + static_cast<int>(Entries::predicate)]
+                = static_cast<int>(Entries::target)
+        ), ...);
+
+        }
+
+        //if constexpr (X * Y > 10) {
+        //    //t[0][10] = 42;
+
+
+
+
+        //    t[0 * X + 10] = 42;
+        //}
+
+        return t;
+    }();
+
+
+
+    /*static constexpr int table2[X * Y] = {
+        -1, -1, -1
+    }*/
+
+
+    //static constexpr int table2[N] = [] {
+    //    //std::array<int, N> t{};
+
+    //    int t[N]{};
+
+    //    if constexpr (N > 10) {
+    //        //t[0][10] = 42;
+
+
+
+
+    //        t[0 * N + 10] = 42;
+    //    }
+
+    //    return t;
+    //}();;
+
+
+
+};
+
+
+
+
 
 /******************************************************************************/
 
@@ -260,7 +422,7 @@ export int main2() {
 
     auto startA = std::chrono::steady_clock::now();
 
-    for (int i = 0; i < 1'000; ++i)
+    for (int i = 0; i < 1'000'00; ++i)
         sinkA ^= static_cast<int>(Automaton::step(state, arg));
 
     auto endA = std::chrono::steady_clock::now();
@@ -278,7 +440,7 @@ export int main2() {
 
     auto startB = std::chrono::steady_clock::now();
 
-    for (int i = 0; i < 1'000; ++i)
+    for (int i = 0; i < 1'000'00; ++i)
         sinkB ^= static_cast<int>(dfaB.step(state, arg));
 
     auto endB = std::chrono::steady_clock::now();
@@ -286,6 +448,45 @@ export int main2() {
     auto durationB = std::chrono::duration_cast<std::chrono::nanoseconds>(endB - startB);
 
     std::cout << "[B] " << durationB << "\n";
+
+    /*************************************************************************/
+
+    constexpr CompileTimeDFA<15> dfaC{};
+
+    volatile auto sinkC = 0;
+
+    auto startC = std::chrono::steady_clock::now();
+
+    for (int i = 0; i < 1'000'00; ++i)
+        sinkC ^= dfaC.step(static_cast<int>(state), static_cast<int>(arg));
+
+    auto endC = std::chrono::steady_clock::now();
+
+    auto durationC = std::chrono::duration_cast<std::chrono::nanoseconds>(endC - startC);
+
+    std::cout << "[C] " << durationC << "\n";
+
+    /*************************************************************************/
+
+    constexpr CompileTimeDfa2<15, 15,
+
+        dfa_transition<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
+    > dfaD;
+
+    volatile auto sinkD = 0;
+
+    auto startD = std::chrono::steady_clock::now();
+
+    for (int i = 0; i < 1'000'00; ++i)
+        sinkD ^= dfaD.step(state, arg);
+
+    auto endD = std::chrono::steady_clock::now();
+
+    auto durationD = std::chrono::duration_cast<std::chrono::nanoseconds>(endD - startD);
+
+    std::cout << "[D] " << durationD << "\n";
+
+    std::cout << "[D] result: " << dfaD.step(static_cast<int>(state), static_cast<int>(arg)) << "\n";
 
     /*************************************************************************/
 
