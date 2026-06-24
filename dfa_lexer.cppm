@@ -1,9 +1,11 @@
+export module dfa_lexer;
+
+
 #include <stdexcept>
 #include <iostream>
 #include <chrono>
 #include <array>
 
-export module dfa_lexer;
 
 /***********************************************************************************/
 
@@ -477,8 +479,8 @@ export int main2() {
 
     auto startD = std::chrono::steady_clock::now();
 
-    for (int i = 0; i < 1'000'00; ++i)
-        sinkD ^= dfaD.step(state, arg);
+    /*for (int i = 0; i < 1'000'00; ++i)
+        sinkD ^= dfaD.step(state, arg);*/
 
     auto endD = std::chrono::steady_clock::now();
 

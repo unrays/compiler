@@ -17,7 +17,7 @@ public:
 public:
 
     bool createsCycleUtil() {
-
+        return true;
     }
 
 
@@ -80,14 +80,14 @@ public:
         // récursivement dans la fonciton, on les utilise jusqu'a la fin 
         // et on reset les deux bitset a la fin.
 
-
+        return true;
     }
 
 
     std::vector<std::size_t> neighbors(std::size_t u) const {
 
 
-
+        return {};
 
     }
 
@@ -99,7 +99,7 @@ public:
         // ou refaire le modèle de stockage.
 
 
-
+        return 10;
     }
 
 private:
@@ -133,13 +133,41 @@ struct atomic_registry {
 };
 
 struct FileData_changer_le_nom {
-    std::string content;
+    std::string content; // probablement dans le interning de string
     std::string name;
 };
 
 struct File_changer_le_nom {
     std::size_t id;
 };
+
+// pour la collection des fichiers, c'est mono threaded.
+// en gros, un thread parcours un arborescence et collecte les std::fs::path
+// qu'il met dans un std::vector. ensuite, 
+
+// on lit tous les fichiers et on les met dans un vecteur ou quelque chose du genre (array).
+// EN FAITE, ON FAIT UN STD::VECTOR<> AVEC TOUS LES PATHS
+// Ensuite, pour chaque path dans le std::vector, on enqueue une nouvelle task dans le
+// thread pool qui consiste a call le pipeline avec le path en param
+
+// le système est le suivant:
+//      FOR EACH PATH -> enqueue(
+//                          execute pipeline -> 1. READ le fichier
+//                                              2. ALLOCATION dans le registre de data du fichiers avec son id,
+//                                              3. EXTRACTION les "import" ou "include" du fichier
+//                                              4. REMPLISSAGE du file dans le graph du context partagé
+//                       );
+// 
+//      Exécution de Scheculer lorsque tous les fichiers ont étés traités
+
+
+// 1. FileDiscoveryPass
+// 2. SourceIndexingPass
+// 3. Scheduler
+
+// peut-être faire un module qui permet de trouver le id d'un fichier a partir de son nom
+// genre avec une hash map probablement ou quelque chose du genre afin de savoir quel id
+// est le fichier inclus repéré dans la lecture (pour remplir le graph)
 
 
 // il s'agirait de faire un flattened graph mais pour l'instant, on garde ça simple.

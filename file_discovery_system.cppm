@@ -21,7 +21,7 @@ struct SourceEntry {
 };
 
 
-
+#if 0
 struct path_extraction_pass {
     using RequiredArgument = mock_t;
 
@@ -37,6 +37,7 @@ struct path_extraction_pass {
     }
 
 };
+#endif
 
 // source_id_attribution_pass
 

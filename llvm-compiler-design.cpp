@@ -1,13 +1,44 @@
-#include <iostream>
+
+
+import <iostream>;
 
 //import std;
 //import std.compat;
 
-#include <tuple>
+
+#include "experiment/token_keyword_classifier_system/rules/access_keyword_rule.cppm"
+#include "experiment/token_keyword_classifier_system/rules/alignment_keyword_rule.cppm"
+
+
+#include "experiment/token_keyword_classifier_system/rules/control_keyword_rule.cppm"
+#include "experiment/token_keyword_classifier_system/rules/modifier_keyword_rule.cppm"
+#include "experiment/token_keyword_classifier_system/rules/qualifier_keyword_rule.cppm"
+#include "experiment/token_keyword_classifier_system/rules/specifier_keyword_rule.cppm"
+#include "experiment/token_keyword_classifier_system/rules/type_keyword_rule.cppm"
+
+//#include "experiment/token_keyword_classifier_system/rules/keyword_rule_base.cppm"
+
+import <tuple>;
+//import token_keyword_classifier_module;
+
+//#include "experiment/token_keyword_classifier_system/token_keyword_classifier.cppm"
+//#include "experiment/token.cppm"
+import token_module;
+
+import token_keyword_classifier_module;
+import keyword_rule_base_module;
+
+import string_splitter_module;
+
+import string_splitting_context_module;
+
+import string_split_strategy_module;
+
+import new_keyword_classifier_module;
 
 //import std;
 
-import thread;
+import threadpool;
 import dfa_lexer;
 
 // un unit de compilation contient les ressources locales ainsi que certaines 
@@ -249,13 +280,13 @@ struct ObjectFileArtifact {
 
 // context pas type-safe, mettre concept à la place
 template<typename MProvider, typename CProvider, typename... Components>
-struct comp_unit_pipeline { // execution engine ou quelque chose avec engine genre compilation engine
+struct ExecutionEngine { // execution engine ou quelque chose avec engine genre compilation engine
     // compilation orchestrator??? ou compilation engine
 
     MProvider moduleProvider;
     CProvider contextProvider;
 
-    explicit comp_unit_pipeline(MProvider& m, CProvider& c)
+    explicit ExecutionEngine(MProvider& m, CProvider& c)
         : moduleProvider(m)
         , contextProvider(c)
     {}
@@ -389,7 +420,7 @@ private:
     using ModuleProvider_ = ModuleProvider<mock_lexer_0, mock_parser_0, console_logger>;
     using ContextProvider_ = ContextProvider<LexingContext, ParsingContext, CodegenContext>;
 
-    using CompilationUnit = comp_unit_pipeline<
+    using CompilationUnit = ExecutionEngine<
         ModuleProvider_, ContextProvider_,
 
         tokenizing_pass_0, lexing_pass_0, parsing_pass_0, context_logging_pass, ir_generation_pass_0
@@ -397,6 +428,8 @@ private:
 
 private:
     ThreadPool pool;
+    data_t scheduler;
+
     data_t systeme_de_linkage;
 
     ModuleProvider_ moduleProvider{};
@@ -405,12 +438,128 @@ private:
     CompilationUnit compilationEngine{ moduleProvider, contextProvider }; // un peu étrange comme nom
     // juste pour mock, en réalité, c'est plus complexe que ca
 
+    // peut etre un fileRegistry si besoin mais peut-être inutile
+
 public:
     auto build() {
         extraction();
+
+        // exctact dependency
+
+        // build graph
+
+        // Build Scheduler // mot build un peu étrange étant donné qu'on est déja dans le build...
+
+        
+        // ExecutionEngine<faire un pipeline pour ce que j'ai parlé dans le fichier test_dag>
+
         compilation();
-        linkage();
+        linking();
     }
+
+
+    // EN GROS LA STRATÉGIE J'AI L'IMPRESSION C'EST DE TOUT FAIRE D'UN COUP GENRE 
+    // UN THREAD SAUTE SUR UN FICHIER, L'EXTRACT ET ENSUITE, IL LE COMPILE, TOUTJOURS
+    // DANS LE MEME ENQUEUE, ON N'UTILISE PAS LE PATTERN DE "work spawning" MONTRÉ PLUS BAS.
+
+    /* PATTERN "work spawning" FINALEMENT ON N'UTILISE PAS CE PATTERN
+    
+        pool.enqueue([&pool] {
+            do_work();
+
+            pool.enqueue([] {
+                do_more_work();
+            });
+        });
+         
+    */
+
+    // OK BON DANS LE FOND, IL FAUT FAIRE UN TaskScheduler ou BuildScheduler
+
+    // celui-ci gère quel fichier est include en premier
+
+
+    // dependency extraction -> celui qui lit les fichiers pour repèrer les #include
+    //                         
+    // build graph  -> il génère ensuite un graph (directed acyclic graph ou DAG) de qui include qu
+    //                      * Nodes = modules
+    //                      * Edges = import dependencies
+
+    // BuildScheduler -> c'est lui qui recoit le graph et qui décide de l'ordre optimal
+    //                   pour compiler les fichiers, si A include B, alors B doit être
+    //                   compilé avant A. B va mettre ses fonctions et tout dans le 
+    //                   SharedContexte et A va pouvoir savoir que ses utilisations
+    //                   existent a quelque pars.
+
+    // noms plus appropriés -> task graph executor, job scheduler (Ninja), execution engine (Bazel), DAG executor
+
+    // Il faut savoir que le compilateur DOIT savoir que foo existe dans A, il va regarder
+    // et il va trouver que B existe mais il ne connaitra pas son adresse. Donc c'est à ça
+    // que sert le linker, le linker ne relie pas magiquement les fonctions, il relie les adresses
+    // mais le travail de savoir si A include un foo a quelque pars est ma job a moi.
+
+    // on stocke des version "mangled" des fonctions pour qu'ils soient différents dans le registre
+    // partagé de fonctions. par exemple B::foo ou bien B.foo.
+
+    // registry: Map<Symbol, Definition>
+
+    // maintenant il faut savoir comment trouver le bon "mangled" name depuis A si il include
+    // B, ça pause principalement probième mais bon, il ne suffit probablement que d'un algorithme
+    // qui sait comment "mangle" un nom depuis les includes du fichier par exemple, A pourra rechercher
+    // foo + "mangle" du include B, ce qui donne B.foo
+
+    // TOUTE LA DOCUMENTATION EN RAPPORT AVEC CECI SEMBLE DE TROUVER ICI:
+    //      -> https://www.recw.ac.in/v1.8/wp-content/uploads/2021/10/UNIT-3-CD.pdf
+
+    // ET POUR LA DOCUMENTATION POUR LE DAG ET LA SCHEDULING:
+    //      -> https://www.geeksforgeeks.org/dsa/introduction-to-directed-acyclic-graph/
+
+    // ENFIN, CELUI-CI EXPLIQUE TRÈS BIEN LE PRINCIPE DU DAG ET DU SCHEDULING:
+    //      -> https://medium.com/@23bt04151/topological-sort-in-compiler-design-ordering-compilation-of-dependent-files-e7f79015212b
+
+    // "If there’s a cycle (A → B → C → A), then no valid order exists 
+    //      — the compiler reports a circular dependency error."
+
+    // POUR SAVOIR OU COMMENCER LE SCHEDULING DES FICHIERS:
+    //      "tu cherches tous les nœuds sans dépendances entrantes" 
+
+    //      -> CECI SE FAIT AVEC UN CONCEPT QUI S'APPEL "in_degree"
+    //         qui est le nombre d’arêtes qui arrivent vers le noeud.
+    //         ainsi, plus le "in-degree" est bas, plus il est en priorité
+    //         pour commencer.
+
+
+    /* EXEMPLE DE COMPORTEMENT D'UN DAG *********************************************
+    
+        DAG graph(5);  // DAG with 5 nodes: 0,1,2,3,4
+
+        graph.addEdge(0, 1);
+        graph.addEdge(1, 2);
+        graph.addEdge(1, 3);
+        graph.addEdge(3, 4);
+
+        // This would create a cycle (2 -> 1 already exists), so it throws an error.
+        try {
+            graph.addEdge(2, 1);
+        } catch (const std::exception& e) {
+            std::cout << "Error adding edge 2->1: " << e.what() << "\n";
+        }
+    
+    ********************************************************************************/
+
+    // POUR LA VISITE ET REGARDER SI UN NODE EST DÉJA INCLUS DANS LE GRAPH,
+    // IL FAUT EFFECTUER DFS/BFS DEPUIS LE NOEUD OU L'ON VEUT AJOUTER LE NOUVEAU NOEUD.
+
+    // LE DAG CHECK SUR TOUTE LA CHAINE POUR VOIR SI D EST REACHEABLE DEPUIS A
+
+    /*******************************************************************************/
+
+    // ok dans le fond, on compile en vagues selon le nombre de dependances du fichier dans le graph
+    // pas exemple, on compile tous les poids=0 en premier, ensuite tous les poids=1, etc...
+
+    // aussi, la compilation se fait -> génération de l'ast |-> génération d'un fichier de métadonnées
+    //                                                      |-> génération du fichier .o
+
 
 protected: // noms temporaires
     void extraction() {
@@ -428,10 +577,15 @@ protected: // noms temporaires
             "Build failure: compilation pipeline did not produce ObjectFileArtifact."
         );
 
+        // faire un pipeline pour construire le ast
+
+        // ensuite, faire un pipeline pour la génération du fichier de métadonnées
+        //          qui pushera une nouvelle task pour compiler le prochain fichier
+
         compilationEngine.run(source);
     }
 
-    void linkage() {
+    void linking() {
 
     }
 };
@@ -599,7 +753,7 @@ int main() {
 
 
 
-    using CompilationUnit = comp_unit_pipeline<
+    using CompilationUnit = ExecutionEngine<
         ModuleProvider_, ContextProvider_,
 
         tokenizing_pass_0, lexing_pass_0, parsing_pass_0, context_logging_pass, ir_generation_pass_0
@@ -616,6 +770,30 @@ int main() {
     main2();
 
     //void end_ctx = unit.run();
+
+
+    /*************************************************************************/
+
+
+
+    using KeywordClassifier = TokenKeywordClassifier<
+        LexingContext_old<SpecifierKeywordRule, TokenType::Kwrd_Specifier>,
+        LexingContext_old<QualifierKeywordRule, TokenType::Kwrd_Qualifier>,
+        LexingContext_old<AlignmentKeywordRule, TokenType::Kwrd_Alignment>,
+        LexingContext_old<ModifierKeywordRule, TokenType::Kwrd_Modifier>,
+        LexingContext_old<ControlKeywordRule, TokenType::Kwrd_Control>,
+        LexingContext_old<AccessKeywordRule, TokenType::Kwrd_Access>,
+        LexingContext_old<TypeKeywordRule, TokenType::Kwrd_Type>
+    >;
+
+    //StringSplitter<StringStreamSplitStrategy> splitter;
+    //auto split = splitter.split(content);
+
+    //LexicalAnalyzer<LexingAutomaton, KeywordClassifier> lexer;
+    //auto tokens = lexer.tokenize(split);
+
+    kwrd_classifier_main();
+
 
 
     //std::cout << "context str result -> " << end_ctx.str << "\n"; // pour temp debug

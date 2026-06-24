@@ -75,4 +75,24 @@ private:
 	bool stop_ = false;
 };
 
+// UTILISER UN PRODUCER POUR ASSIGNER LES TACHES
+// LE PRODUCER EST UN THREAD QUI ASSIGNE LES TACHES
+// IL EST DEHORS DU THREAD POOL
+
+
+struct TaskAccumulator {
+public:
+	// schedule
+
+	// 
+
+
+private:
+	ThreadPool pool; // passer par ref probablement
+
+
+
+};
+
+
 #endif

@@ -1,0 +1,43 @@
+#include <iostream>
+
+class Person : IPerson {
+public:
+    const char* name;
+    int age;
+
+    int greet() {
+        return 0;
+    }
+
+    int isAdult(int ageThreshold) {
+        return age >= ageThreshold ? 1 : 0;
+    }
+
+    int hasName() {
+        return name != nullptr ? 1 : 0;
+    }
+
+    int canVote(bool citizen) {
+        return (age >= 18 && citizen) ? 1 : 0;
+    }
+
+    int isTeenager() {
+        return (age >= 13 && age <= 19) ? 1 : 0;
+    }
+
+    int nameLengthEquals(int&& len) {
+        return (name && std::strlen(name) == len) ? 1 : 0;
+    }
+
+    int ageLessThan(const int& limit) {
+        return age < limit ? 1 : 0;
+    }
+
+    int ageInRange(float&& min, float const& max) {
+        return (age >= min && age <= max) ? 1 : 0;
+    }
+
+    int dummyCheck(int x, int y, const float& f) {
+        return (x + y > f) ? 1 : 0;
+    }
+};
