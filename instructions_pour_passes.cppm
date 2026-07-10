@@ -5,10 +5,12 @@
 #include <type_traits>
 #include <iostream>
 #include <memory_resource>
+#include <string_view>
 
 export module instruction_things;
 
 import sharded_string_interner_module;
+import fixed_string_module;
 
 using NodeType = int;
 using TokenType = int;
@@ -216,7 +218,7 @@ namespace PASS1_STRING_SPLITTING {
 	struct StringSplitter {
 		[[nodiscard]] const auto split(const std::string_view& input) const
 		{
-			std::vector<std::string> accumulator;
+			std::vector<std::string> accumulator; //FAUT FAIRE DES STRING_VIEWS
 			auto context = StringSplittingContext{ input, accumulator };
 
 			Strategy{}.apply(context);
@@ -227,8 +229,73 @@ namespace PASS1_STRING_SPLITTING {
 
 
 	/*****************************************************************/
+	/*****************************************************************/
+	/*****************************************************************/
+
+	/******/
+
+	// noexcept((noexcept(CompositionPolicies::compose(composand)) && ...))
+
+	template<char... Principles>
+	struct CharMatchingPolicy {
+		static constexpr [[nodiscard]] bool matches(char c)
+			noexcept((noexcept(c == Principles) && ...))
+		{
+			return ((c == Principles) || ...);
+		}
+	};
+
+	using WhitespaceMatchingPolicy = CharMatchingPolicy<'\x20'>;
+	using NewLineMatchingPolicy = CharMatchingPolicy<'\x0A'>;
 
 
+	template<typename... FilterPolicies>
+	struct StreamSegmentationStrategy {
+	public:
+		static [[nodiscard]] std::vector<std::string_view> execute(std::string_view input) {
+			std::vector<std::string_view> buffer;
+			buffer.reserve(1 << 8); // 256
+
+			const char* start = input.data();
+			const char* end = start + input.size();
+			const char* current_seg_start = start;
+
+			for (const char* p = start; p != end; ++p) {
+				if ((FilterPolicies::matches(*p) || ...)) {
+					buffer.emplace_back(current_seg_start, static_cast<std::ptrdiff_t>(p - current_seg_start));
+					current_seg_start = p;
+				}
+			}
+
+			buffer.emplace_back(current_seg_start, static_cast<std::ptrdiff_t>(end - current_seg_start));
+			return buffer;
+		}
+	};
+
+
+
+	template<typename SegmentationStrategy>
+	struct StringSegmenter final {
+	public:
+		[[nodiscard]] std::vector<std::string_view> segment(std::string_view input)
+			noexcept(noexcept(strategy.execute(input)))
+		{
+			return strategy.execute(input);
+		}
+
+	private:
+		[[no_unique_address]] SegmentationStrategy strategy;
+
+	};
+
+
+	// en gros, je peux garder les \n et espaces pour la phase de segmentation et créer des tokens
+	// avec les informations nécessaires (genre ligne et tout) au moment du lexical analyser qui au lieu
+	// de transformer \n en token, va simplement executer une règle spécifique poru changer de ligne le compteur
+
+	// pour calculer les lignes et colonnes
+
+	// token { ligne; colonne; }
 }
 
 
@@ -404,18 +471,49 @@ export void main_instruction_for_passes() {
 	// ou peut-être qu'il devrait retourner les strings mais que un module pourrait repasser dessus pour transformer
 	// en vector de stirng internés
 
+	// ON MET LE STRING INTERNING DANS LE LEXER. LE LEXER RECOIT UN std::vector<std::string_view> et au fur et 
+	// à mesure, il transforme les strv en interned.
+
 	{
 		using namespace PASS1_STRING_SPLITTING;
 
-		std::string content = "hello world, j'aime le c++";
+		std::string content = "hello world, j'aime le c++\n retour a la ligne";
 
 		StringSplitter<StringStreamSplitStrategy> splitter;
 
-		auto split = splitter.split(content);
+		auto split1 = splitter.split(content);
 
-		for (auto const& s : split) {
-			std::cout << s << " <-> ";
+		std::cout << "old system: ";
+		for (auto const& s : split1) {
+			std::cout << '[' << s << ']';
 		}
+		std::cout << "\n";
+
+		/***************** NEW SEGMENTER ********************/
+
+		using SegmentationStrategy = StreamSegmentationStrategy<
+			WhitespaceMatchingPolicy,
+			NewLineMatchingPolicy
+		>;
+
+		StringSegmenter<SegmentationStrategy> segmenter;
+
+		auto split2 = segmenter.segment(content);
+
+		std::cout << "new system: ";
+		for (auto const& s : split2) {
+			/*if (s == "") std::cout << "[BACKSLASH]";
+			else std::cout << '[' << s << ']';*/
+
+			std::cout << '[' << s << ']';
+		}
+
+
+
+		//StringSegmenter<>
+
+
+
 	}
 
 
