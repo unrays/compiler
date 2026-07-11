@@ -13,7 +13,7 @@ import sharded_string_interner_module;
 import fixed_string_module;
 
 using NodeType = int;
-using TokenType = int;
+//using TokenType = int;
 
 using MockModuleA = std::uint8_t;
 using MockModuleB = std::uint16_t;
@@ -250,7 +250,7 @@ namespace PASS1_STRING_SPLITTING {
 
 
 	template<typename... FilterPolicies>
-	struct StreamSegmentationStrategy {
+	struct StreamSegmentationStrategy { // peut-être fusionner avec celui d'en bas maintenant que la stratégie est plus générique
 	public:
 		static [[nodiscard]] std::vector<std::string_view> execute(std::string_view input) {
 			std::vector<std::string_view> buffer;
@@ -296,6 +296,665 @@ namespace PASS1_STRING_SPLITTING {
 	// pour calculer les lignes et colonnes
 
 	// token { ligne; colonne; }
+
+	// FINALEMENT CE MODULE EST INUTILE CAR NOUS N'AVONS PAS BESOIN DE DÉCOUPER LE CONTENU POUR QUE LE LEXER PUISSE FONCTIONNER,
+	// C'EST PROBABLEMENT UN ARTÉFACT DE L'ANCIENNE ARCHITECTURE.
+}
+
+
+namespace PASS2_CONTENT_LEXING {
+
+
+/********************************************************************************/
+
+
+#if 0
+	struct Stateful;
+	struct Stateless;
+
+
+
+	// StreamReader - stateful
+	// PositionTracker - stateful
+	// Lexer
+
+
+
+	template<typename Policy>
+	struct PositionTrackerr {
+
+		// genre en gros, on demande a ce que le contexte donné ait les mêmes données que le contexte stateful du module
+		// ca permet de faire un architecture autant stateless que stateful
+
+
+		/*    using MemberType = std::conditional_t<KeepMember, int, empty_tag>;
+
+			  // [[no_unique_address]] ensures empty_tag occupies 0 bytes
+			  [[no_unique_address]] MemberType data;
+		*/
+		
+		struct StatelessData {};
+
+		struct StatefulData {
+			int line;
+			int column;
+		};
+
+		using DataType = std::conditional_t<std::is_same_v<Policy, Stateful>, StatefulData, StatelessData>;
+
+
+
+		/*void foo(DataType& p = data) {
+
+			if constexpr (std::is_same_v<DataType, StatelessData>) {
+
+			}
+
+		}*/
+
+
+
+		// au pire faire version statique et non statique
+
+
+		// delete le overload si par exemple le Policy est Stateful
+		static void foo_static(StatefulData p) { //passer par ref
+			std::cout << "[STATIC OVERLOAD] p.column -> " << p.column << "\n";
+		}
+
+		void foo() {
+			std::cout << "[NON-STATIC OVERLOAD] p.column -> " << data_test.column << "\n";
+		}
+
+		void foo2(this PositionTrackerr<Stateful> self) {
+
+		}
+
+		void foo2(this PositionTrackerr<Stateless> self, StatefulData p) {
+
+		}
+
+
+		/*void foo(StatefulData& p) {
+			std::cout << "p.column -> " << p.column << "\n";
+		}*/
+
+
+		StatefulData data_test;
+
+		[[no_unique_address]] DataType data;
+
+	};
+#endif
+
+
+/********************************************************************************/
+
+
+	enum class LexingStateType { // PEUT-ÊTRE À CHANGER, SET UTILISÉ DANS L'ESP ET TRÈS ORIENTÉ C++
+		STATE_START,
+		STATE_INVALID,
+		STATE_ERROR,
+
+		STATE_IDENTIFIER,
+		STATE_DELIMITER,
+
+		STATE_DELIM_COLON,
+		STATE_DELIM_SEMI,
+		STATE_DELIM_COMA,
+
+		STATE_DELIM_R_PAREN,
+		STATE_DELIM_L_PAREN,
+
+		STATE_DELIM_R_CURLY,
+		STATE_DELIM_L_CURLY,
+
+		STATE_DELIM_R_SQUARE,
+		STATE_DELIM_L_SQUARE,
+
+		STATE_DELIM_R_ANGLE,
+		STATE_DELIM_L_ANGLE,
+
+		STATE_HASH,//deprec
+		STATE_PREPROCESSOR,
+		STATE_NEWLINE,
+
+
+		STATE_OPERATOR,
+
+		STATE_NUMBER,
+
+		STATE_WHITESPACE,
+	};
+
+
+/***********************************************************************************/
+
+
+	template<auto...>
+	struct dfa_transition;
+
+	template<auto Source, auto Predicate, auto Target>
+	struct dfa_transition<Source, Predicate, Target> {
+
+		static constexpr auto source = Source;
+
+		static constexpr auto predicate = Predicate;
+		static constexpr auto target = Target;
+	};
+
+
+/********************************************************************************/
+
+
+	// TOTALEMENT NON TERMINÉ, IL FAUT ABSOLUMENT LE PAUFINER ET LE RENDRE PLUS STABLE, FONCTIONNE TEMPORAIREMENT
+	template<std::size_t X, std::size_t Y, typename... Entries> // mettre aussi les types admis
+	struct CompileTimeDfa {
+	public:
+
+		//table[state * N + input]
+
+
+		// genre is_catable_to_int, on recoit des types, pas des int directement
+
+
+	public:
+		[[nodiscard]] static constexpr int step_raw(int state, int input) {
+			return table[state * X + input];
+		}
+
+
+		// must be castable to integer, le return type mettre le type d'entrée state
+
+
+
+		// OK JE DEVRAIS FAIRE DEUX MODULES, EN GROS YA LE COMPILE TIME DFA ET 
+		// YA UN WRAPPER PAR DESSUS QUI EFFECTUE TOUT LE TRUC CHIANT AVEC LES MODULES
+
+		/*[[nodiscard]] static constexpr int step(int state, int input) noexcept {
+			return table[static_cast<int>(state) * X + static_cast<int>(input)];
+		}*/
+
+		template<typename Tp, typename Up>
+		[[nodiscard]] static constexpr Tp step(Tp state, Up input) noexcept(false) {
+			return static_cast<Tp>(
+				table[static_cast<int>(state) * X + static_cast<int>(input)]
+			);
+		}
+
+		template<typename Tp, typename Up>
+			requires std::convertible_to<Tp, int>&&
+		std::convertible_to<Up, int>&&
+			std::convertible_to<int, Tp>
+			[[nodiscard]] static constexpr Tp step_with_concept(Tp state, Up input) noexcept {
+			return static_cast<Tp>(
+				table[static_cast<int>(state) * X + static_cast<int>(input)]
+			);
+		}
+
+	public:
+
+		static constexpr auto table = [] {
+			std::array<int, X* Y> t{};
+
+			if constexpr (X * Y > 10) { // teporaire mock
+
+
+				((
+					t[static_cast<int>(Entries::source) * X + static_cast<int>(Entries::predicate)]
+					= static_cast<int>(Entries::target)
+					), ...);
+
+			}
+
+			//if constexpr (X * Y > 10) {
+			//    //t[0][10] = 42;
+
+
+
+
+			//    t[0 * X + 10] = 42;
+			//}
+
+			return t;
+			}();
+
+
+
+		/*static constexpr int table2[X * Y] = {
+			-1, -1, -1
+		}*/
+
+
+		//static constexpr int table2[N] = [] {
+		//    //std::array<int, N> t{};
+
+		//    int t[N]{};
+
+		//    if constexpr (N > 10) {
+		//        //t[0][10] = 42;
+
+
+
+
+		//        t[0 * N + 10] = 42;
+		//    }
+
+		//    return t;
+		//}();;
+
+
+
+	};
+
+
+/********************************************************************************/
+
+
+	template<fixed_string... Principles>
+	struct KeywordMatchingPolicy {
+		static constexpr [[nodiscard]] bool matches(std::string_view sv)
+			noexcept((noexcept(sv == Principles) && ...))
+		{
+			return ((sv == Principles) || ...);
+		}
+	};
+
+
+/********************************************************************************/
+
+
+	using AccessKeywordMatchingPolicy = KeywordMatchingPolicy<
+		"public", "protected", "private"
+	>;
+
+	using AlignmentKeywordMatchingPolicy = KeywordMatchingPolicy<
+		"alignas", "alignof"
+	>;
+
+	using ControlKeywordMatchingPolicy = KeywordMatchingPolicy<
+		"and", "and_eq", "asm", "atomic_cancel",
+		"atomic_commit", "atomic_noexcept", "break", "case",
+		"catch", "class", "compl", "concept",
+		"continue", "co_await", "co_return", "co_yield",
+		"default", "delete", "do", "else",
+		"enum", "false", "for", "goto",
+		"if", "namespace", "new", "not",
+		"not_eq", "nullptr", "operator", "or",
+		"or_eq", "reflexpr", "requires", "return",
+		"sizeof", "switch", "synchronized", "template",
+		"this", "throw", "true", "try",
+		"typedef", "typeid", "typename", "union",
+		"using", "while", "xor", "xor_eq"
+	>;
+
+	using ModifierKeywordMatchingPolicy = KeywordMatchingPolicy<
+		"*", "&", "&&"
+	>;
+
+	using QualifierKeywordMatchingPolicy = KeywordMatchingPolicy<
+		"const", "volatile"
+	>;
+
+	using SpecifierKeywordMatchingPolicy = KeywordMatchingPolicy<
+		"virtual", "final", "override",
+		"constexpr", "consteval", "constinit",
+		"inline", "explicit", "noexcept",
+		"static", "extern", "thread_local",
+		"mutable", "register", "export"
+	>;
+
+	using TypeKeywordMatchingPolicy = KeywordMatchingPolicy<
+		"bool", "char", "char8_t", "char16_t",
+		"char32_t", "double", "float", "int",
+		"long", "short", "signed", "unsigned",
+		"void", "wchar_t"
+	>;
+
+
+/********************************************************************************/
+
+
+	enum struct TokenType {
+		Identifier,
+
+		Keyword,
+
+		Kwrd_Type,
+		Kwrd_Qualifier,
+		Kwrd_Specifier,
+		Kwrd_Modifier,
+		Kwrd_Alignment,
+		Kwrd_Control,
+		Kwrd_Access,
+
+		Delimiter,
+
+		Delim_Colon,
+		Delim_Semicolon,
+		Delim_Coma,
+
+		Delim_RParen,
+		Delim_LParen,
+
+		Delim_LCurly,
+		Delim_RCurly,
+
+		Delim_RSquare,
+		Delim_LSquare,
+
+		Delim_RAngle,
+		Delim_LAngle,
+
+		Preprocessor,
+		Operator,
+		Number,
+		Whitespace,
+		Newline,
+		Invalid,
+		Unknown
+	};
+
+
+/********************************************************************************/
+
+
+	template<typename T>
+	concept IsaKeywordMatchingPolicy =
+		requires(std::string_view sv) {
+			{ T::matches(sv) } -> std::same_as<bool>;
+	};
+
+
+/********************************************************************************/
+
+
+	export template<typename Predicate, auto Corresponding>
+	struct TokenClassifierContext final {
+		using predicate_type = Predicate;
+		static constexpr TokenType corresponding = Corresponding;
+	};
+
+	template<typename T>
+	concept is_token_classifier_context = requires {
+		typename T::predicate_type;
+		T::corresponding;
+	};
+
+
+/********************************************************************************/
+
+
+	export template<is_token_classifier_context... Contexts>
+	struct TokenKeywordClassifier2 final { // re-categorizer?
+		private:
+			template<typename Current, typename... Remaining>
+			[[nodiscard]] static constexpr TokenType evaluate_recursively(std::string_view sv)
+				noexcept(noexcept(Current::predicate_type::matches(sv)))
+			{
+				if (Current::predicate_type::matches(sv))
+					return Current::corresponding;
+
+				if constexpr (sizeof...(Remaining) == 0)
+					return TokenType::Unknown;
+				else
+					return evaluate_recursively<Remaining...>(sv);
+			}
+
+		public:
+			[[nodiscard]] static constexpr TokenType transform(std::string_view sv)
+				noexcept(noexcept(evaluate_recursively<Contexts...>(sv)))
+			{
+				return evaluate_recursively<Contexts...>(sv);
+			}
+	};
+
+
+/********************************************************************************/
+
+
+	struct SourceLocation {
+		std::size_t line;   // 8 bytes, std::uint16_t???
+		std::size_t column; // 8 bytes
+	}; 
+
+	struct Token {
+		//Token(TokenType k, const char)
+
+
+
+		TokenType kind;
+
+
+		//const char* lexeme; // string interné
+
+		std::string_view lexeme; // TEMPORAIRE
+
+		SourceLocation location;
+	};
+
+
+/********************************************************************************/
+
+
+	struct CharReader { // changer le nom
+	public:
+		/*CharReader(std::string_view pcontent)
+			: content(pcontent) {}*/
+
+
+		CharReader(std::string_view source) // peut etre prendre directement begin et end
+			: begin_(source.data())
+			, end_(begin_ + source.size())
+			, cursor_(begin_)
+		{}
+
+
+		CharReader(const char* begin, const char* end) // je pense que c'est lui qu'il faut garder
+			: begin_(begin)
+			, end_(end)
+			, cursor_(begin)
+		{
+		}
+
+	public:
+		[[nodiscard]] const char* advance() {
+			if (cursor_ == end_ || *cursor_ == '\0') [[unlikely]] {
+				return cursor_;
+			}
+
+			return ++cursor_;
+		}
+
+		// fonction peek pour regarder le char actuel
+
+
+
+	private:
+		// advance
+
+		//std::string_view content;
+
+
+		////// return \0 si on est a la fin
+
+		// PEUT-ÊTRE ALLOCATE LES CHAR OU QUELQUE CHOSE DU GENRE, À VOIR!
+
+		const char* begin_;
+		const char* end_;
+		const char* cursor_;
+
+	};
+
+
+/********************************************************************************/
+
+
+	struct PositionTracker {
+	public:
+		SourceLocation& update(char c) { // attention à la copie, sagirait d'investiguer le lifetime, copier reste extrememet cheap.
+			
+			if (c == '\n') {
+				++current.line;
+				current.column = 0;
+			}
+			// peut etre gerer les tab genre +4 ou +8
+			else {
+				++current.column;
+			}
+
+			return current;
+		}
+
+		SourceLocation& current_location() {
+			return current;
+		}
+
+
+
+
+	private:
+		SourceLocation current{}; // current_???
+
+	};
+
+
+/********************************************************************************/
+
+	// DEVRAIS DEVENIR GENRE UNE CONFIGURATION PAR POLICY OU RULES, QUELQUE CHOSE DU GENRE.
+
+	constexpr TokenType state_to_token(LexingStateType _) {
+		switch (_) {
+		case LexingStateType::STATE_IDENTIFIER: return TokenType::Identifier;
+		case LexingStateType::STATE_DELIMITER: return TokenType::Delimiter;
+
+		case LexingStateType::STATE_OPERATOR: return TokenType::Operator;
+
+		case LexingStateType::STATE_DELIM_COLON: return TokenType::Delim_Colon;
+		case LexingStateType::STATE_DELIM_SEMI: return TokenType::Delim_Semicolon;
+		case LexingStateType::STATE_DELIM_COMA: return TokenType::Delim_Coma;
+
+		case LexingStateType::STATE_DELIM_L_PAREN: return TokenType::Delim_LParen;
+		case LexingStateType::STATE_DELIM_R_PAREN: return TokenType::Delim_RParen;
+
+		case LexingStateType::STATE_DELIM_L_CURLY: return TokenType::Delim_LCurly;
+		case LexingStateType::STATE_DELIM_R_CURLY: return TokenType::Delim_RCurly;
+
+		case LexingStateType::STATE_DELIM_L_SQUARE: return TokenType::Delim_LSquare;
+		case LexingStateType::STATE_DELIM_R_SQUARE: return TokenType::Delim_RSquare;
+
+		case LexingStateType::STATE_DELIM_L_ANGLE: return TokenType::Delim_LAngle;
+		case LexingStateType::STATE_DELIM_R_ANGLE: return TokenType::Delim_RAngle;
+
+		case LexingStateType::STATE_PREPROCESSOR: return TokenType::Preprocessor;
+		case LexingStateType::STATE_NEWLINE: return TokenType::Newline;
+
+		case LexingStateType::STATE_NUMBER: return TokenType::Number;
+		case LexingStateType::STATE_INVALID: return TokenType::Unknown;
+
+		default: return TokenType::Invalid;
+		}
+	}
+
+
+/********************************************************************************/
+
+
+	// LexicalAnalyzer<LexingAutomaton, KeywordClassifier> lexer;
+
+	// template reader & tracker + probablement le automaton
+
+	template<
+		//typename Reader, typename Tracker,
+		typename LexingAutomaton, typename Recategorizer
+	>
+	struct Lexer {
+
+
+		// peut etre mettre soit les automaton et classifier
+		// ou mettre le tracker et le reader, à voir...
+
+		template <typename Reader, typename Tracker>
+		[[nodiscard]] std::vector<Token> tokenize(std::string_view source) {
+			Reader reader{ source.data(), source.data() + source.size() };
+			Tracker tracker{};
+
+
+			std::vector<Token> tokens;
+			tokens.reserve(1 << 10); // 1024
+
+
+			LexingStateType current_state = LexingStateType::STATE_START;
+
+			const char* current_ptr = source.data();
+			const char* current_seg_start = current_ptr;
+
+			SourceLocation current_location;
+
+
+
+			while (*current_ptr != '\0') { // peut-être une fonction genre is_end
+
+				current_location = tracker.update(*current_ptr);
+				LexingStateType next_state = automaton.step(current_state, *current_ptr); // peut-être assignation au lieu d'instantiation
+
+
+				if (next_state == LexingStateType::STATE_INVALID) [[unlikely]] {
+					tokens.emplace_back(
+						state_to_token(current_state),
+						std::string_view(current_seg_start, static_cast<std::ptrdiff_t>(current_ptr - current_seg_start)), // en attendant le interner
+						current_location // par copie
+					);
+
+					current_seg_start = current_ptr; // pas 100% certain, à tester...
+					current_state = LexingStateType::STATE_START;
+				}
+				else {
+					current_ptr = reader.advance();
+				}
+
+			}
+
+
+			return tokens; // pas copie... à voir pour allocation.
+
+			// PEUT-ÊTRE FAIRE UN AUTER MODULE QUI TRAITE LES TOKENS A LA FIN AVEC LE CLASSIFIER. 
+			// ÇA RENDRAIT UN PEU MOINS LOURD LA LOGIQUE DE CETTE CLASSE.
+
+
+
+
+
+
+
+
+
+			// FAUT AUSSI INTERN LES STRINGS avant de les mettre dans les tokens, genre quand on coupe le char
+
+
+			// on demande le prochain char au StreamReader avec .get_next() ou quelque chose du genre.
+
+			// on passe le char lu au PositionTracker qui retourne la prochaine position en condition du charactère.
+
+			// on exécute l'algorithme de l'automaton pour obtenir le prochain state.
+
+
+
+			//PositionTrackerr<Stateful> stateful_tracker;
+			//PositionTrackerr<Stateless> stateless_tracker;
+
+
+		}
+
+
+		[[no_unique_address]] LexingAutomaton automaton;
+		[[no_unique_address]] Recategorizer recategorizer; // module séparé peut-être
+	};
+
+
+/********************************************************************************/
+
+
 }
 
 
@@ -409,8 +1068,8 @@ struct Node { // ou plutot NodeHandle
 	std::uint32_t id;
 };
 
-struct Token {
-	TokenType type;
+struct Token_old {
+	//TokenType type;
 
 	std::uint32_t lexeme; // id dans le string interner. utiliser la technique de UE5 discuté précédemment.
 
@@ -512,9 +1171,64 @@ export void main_instruction_for_passes() {
 
 		//StringSegmenter<>
 
+	}
+
+
+	{
+		using namespace PASS2_CONTENT_LEXING;
+
+
+		/*PositionTrackerr<Stateful> tracker{};
+
+		tracker.foo();
+
+		PositionTrackerr<Stateful>::foo_static({});
+
+		tracker.foo2();
+
+		PositionTrackerr<Stateless> stateless_tracker{};
+
+		stateless_tracker.foo2({});*/
+
+
+		/*
+			template<
+				typename Reader, typename Tracker,
+				typename LexingAutomaton, typename Recategorizer
+			>
+		*/
+
+
+		constexpr CompileTimeDfa<15, 15,
+
+			dfa_transition<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
+		> dfaD;
+
+		using LexingAutomaton = CompileTimeDfa<15, 15,
+
+			dfa_transition<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
+		>;
+
+		using TokenKwrdClassifier = TokenKeywordClassifier2<
+			TokenClassifierContext<AccessKeywordMatchingPolicy, TokenType::Kwrd_Access>,
+			TokenClassifierContext<AlignmentKeywordMatchingPolicy, TokenType::Kwrd_Alignment>
+		>;
+
+		using LexicalAnalyzer = Lexer<LexingAutomaton, TokenKwrdClassifier>;
+
+
+		std::string content = "hello world, j'aime le c++\n retour a la ligne";
+
+		LexicalAnalyzer lexer;
+
+		std::vector<Token> tokens = lexer.tokenize<CharReader, PositionTracker>(content);
+
+		std::cout << "Tokens: \n";
+		for (auto const& t : tokens) {
+			std::cout << '[' << t.lexeme << ']';
+		}
 
 
 	}
-
 
 }
