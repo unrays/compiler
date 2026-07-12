@@ -502,7 +502,7 @@ namespace PASS2_CONTENT_LEXING {
 
 				((
 					t[static_cast<int>(Entries::source) * X + static_cast<int>(Entries::predicate)]
-					= static_cast<int>(Entries::target)
+						= static_cast<int>(Entries::target)
 					), ...);
 
 			}
@@ -544,6 +544,130 @@ namespace PASS2_CONTENT_LEXING {
 		//}();;
 
 
+
+	};
+
+
+	template<std::size_t R, std::size_t C>
+	struct StaticMatrix final {
+	public:
+		template<typename... Args>
+			requires (sizeof...(Args) == (R * C))
+				  && (std::convertible_to<Args, int> && ...)
+		consteval StaticMatrix(Args... entries)
+			: m_{ entries... } {}
+
+		consteval StaticMatrix(std::array<int, R * C> arr)
+			: m_(arr) {}
+
+	public:
+		[[nodiscard]] constexpr const auto& at(std::size_t i, std::size_t j) const noexcept {
+			if (i >= R || j >= C) [[unlikely]]
+				throw std::out_of_range("Matrix out of bounds.");
+
+			return m_[i * C + j];
+		}
+
+		[[nodiscard]] constexpr auto& at(std::size_t i, std::size_t j) noexcept {
+			if (i >= R || j >= C) [[unlikely]]
+				throw std::out_of_range("Matrix out of bounds.");
+
+			return m_[i * C + j];
+		}
+
+		// AJOUTER D'AUTRES CHOSES DANS LE FUTUT MAIS POUR L'INSTANT, C'EST FONCTIONNEL
+		// operators [] ou () sans aucune vérif de bounds
+
+	private:
+		std::array<int, R * C> m_;
+	};
+
+
+	template<typename... Entries> // en attendant, probablement utiliser Configuration
+	struct IntegerBacktrackingDFA { // Longest-match DFA ou Maximum Munch DFA ou Backtracking DFA
+	public:
+
+
+		// ajouter le current, previous et starting state.
+
+	/*private:*/
+		static constexpr std::size_t maximum_evaluated_size = std::max(
+			std::max({ static_cast<int>(Entries::source)... }),
+			std::max({ static_cast<int>(Entries::predicate)... })
+			// peut-être mettre aussi le target
+		);
+
+
+
+		// si un input dépasse la taille, ca explose ICI ICI ICI ICI
+
+
+
+
+		static consteval std::array<int, maximum_evaluated_size * maximum_evaluated_size> testGenerateArr() {
+			std::array<int, maximum_evaluated_size * maximum_evaluated_size> arr{};
+
+			((
+				arr[static_cast<int>(Entries::source) * maximum_evaluated_size + static_cast<int>(Entries::predicate)]
+						= static_cast<int>(Entries::target)
+			), ...);
+
+			return arr;
+		}
+
+
+		StaticMatrix<maximum_evaluated_size, maximum_evaluated_size> m_{ testGenerateArr() };
+	};
+
+
+/********************************************************************************/
+
+
+	template<bool Condition, typename Target, typename Predicate>
+	struct ConfigurationRule {
+		static constexpr bool condition = Condition;
+
+		using target = Target;
+		using predicate = Predicate;
+	};
+
+	template<typename Target, typename Predicate>
+	using ENABLED = ConfigurationRule<true, Target, Predicate>;
+
+	template<typename Target, typename Predicate>
+	using DISABLED = ConfigurationRule<false, Target, Predicate>;
+
+	template<auto Condition, typename Target, typename Predicate>
+	using CONDITIONAL = ConfigurationRule<Condition, Target, Predicate>;
+
+
+
+
+
+	template<typename... Ts>
+	struct SystemConfiguration;
+
+	template<>
+	struct SystemConfiguration<> {
+		using type = std::tuple<>;
+	};
+
+	template<typename First, typename... Rest> // must be ConfigurationRule
+	struct SystemConfiguration<First, Rest...> {
+		using Tail = typename SystemConfiguration<Rest...>::type;
+
+		using type = std::conditional_t<
+			First::condition,
+			decltype(std::tuple_cat(std::tuple<First>{}, Tail{})),
+			Tail
+		>;
+	};
+
+/********************************************************************************/
+
+
+	template<typename Configuration> 
+	struct ModularSystem {
 
 	};
 
@@ -684,6 +808,9 @@ namespace PASS2_CONTENT_LEXING {
 
 /********************************************************************************/
 
+	export template<typename Configuration> // POUR MOCK TEMPORAIRE
+		struct TokenKeywordClassifier final {};
+
 
 	export template<is_token_classifier_context... Contexts>
 	struct TokenKeywordClassifier2 final { // re-categorizer?
@@ -737,7 +864,7 @@ namespace PASS2_CONTENT_LEXING {
 /********************************************************************************/
 
 
-	struct CharReader { // changer le nom
+	struct CharReader { // changer le nom genre CharStreamReader
 	public:
 		/*CharReader(std::string_view pcontent)
 			: content(pcontent) {}*/
@@ -766,7 +893,26 @@ namespace PASS2_CONTENT_LEXING {
 			return ++cursor_;
 		}
 
+		[[nodiscard]] char peek() const noexcept { // constexpr?
+			return *cursor_;
+		}
+
 		// fonction peek pour regarder le char actuel
+
+		// PEUT-ÊTRE PLUTOT FAIRE GENRE UN FOR EACH EXTERNE ET APELLER LE TRUC GENRE CHARSTREAM <--------------------------- !!!!!!!!!!!!!!
+
+
+		template<typename F>
+		void consume(F&& task) {
+
+
+			for (; *cursor_ != '\0'; ++cursor_) {
+				task(cursor_);
+			}
+
+
+		}
+
 
 
 
@@ -806,7 +952,7 @@ namespace PASS2_CONTENT_LEXING {
 			return current;
 		}
 
-		SourceLocation& current_location() {
+		SourceLocation& current_location() { // ou get_location (probablement mieux)
 			return current;
 		}
 
@@ -876,7 +1022,7 @@ namespace PASS2_CONTENT_LEXING {
 
 		template <typename Reader, typename Tracker>
 		[[nodiscard]] std::vector<Token> tokenize(std::string_view source) {
-			Reader reader{ source.data(), source.data() + source.size() };
+			Reader reader{ source.data(), source.data() + source.size() }; // le call Stream?
 			Tracker tracker{};
 
 
@@ -892,28 +1038,56 @@ namespace PASS2_CONTENT_LEXING {
 			SourceLocation current_location;
 
 
+			/****************/
 
-			while (*current_ptr != '\0') { // peut-être une fonction genre is_end
 
-				current_location = tracker.update(*current_ptr);
-				LexingStateType next_state = automaton.step(current_state, *current_ptr); // peut-être assignation au lieu d'instantiation
+
+
+
+			reader.consume([&](const char* current) {
+
+				char c = *current;
+
+				SourceLocation cur_location = tracker.update(c);
+				LexingStateType next_state = automaton.step(current_state, c);
 
 
 				if (next_state == LexingStateType::STATE_INVALID) [[unlikely]] {
 					tokens.emplace_back(
 						state_to_token(current_state),
-						std::string_view(current_seg_start, static_cast<std::ptrdiff_t>(current_ptr - current_seg_start)), // en attendant le interner
+						std::string_view(current_seg_start, static_cast<std::ptrdiff_t>(current - current_seg_start)), // en attendant le interner
 						current_location // par copie
 					);
 
-					current_seg_start = current_ptr; // pas 100% certain, à tester...
+					current_seg_start = current; // pas 100% certain, à tester...
 					current_state = LexingStateType::STATE_START;
 				}
-				else {
-					current_ptr = reader.advance();
-				}
 
-			}
+			});
+
+
+
+			//while (*current_ptr != '\0') { // peut-être une fonction genre is_end
+
+			//	current_location = tracker.update(*current_ptr);
+			//	LexingStateType next_state = automaton.step(current_state, *current_ptr); // peut-être assignation au lieu d'instantiation
+
+
+			//	if (next_state == LexingStateType::STATE_INVALID) [[unlikely]] {
+			//		tokens.emplace_back(
+			//			state_to_token(current_state),
+			//			std::string_view(current_seg_start, static_cast<std::ptrdiff_t>(current_ptr - current_seg_start)), // en attendant le interner
+			//			current_location // par copie
+			//		);
+
+			//		current_seg_start = current_ptr; // pas 100% certain, à tester...
+			//		current_state = LexingStateType::STATE_START;
+			//	}
+			//	else {
+			//		current_ptr = reader.advance();
+			//	}
+
+			//}
 
 
 			return tokens; // pas copie... à voir pour allocation.
@@ -1198,12 +1372,6 @@ export void main_instruction_for_passes() {
 			>
 		*/
 
-
-		constexpr CompileTimeDfa<15, 15,
-
-			dfa_transition<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
-		> dfaD;
-
 		using LexingAutomaton = CompileTimeDfa<15, 15,
 
 			dfa_transition<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
@@ -1228,6 +1396,46 @@ export void main_instruction_for_passes() {
 			std::cout << '[' << t.lexeme << ']';
 		}
 
+
+
+
+
+
+		using System = ModularSystem<
+			SystemConfiguration<
+				ENABLED		<LexingAutomaton, TokenKwrdClassifier>,
+				DISABLED	<CharReader, PositionTracker>,
+
+				CONDITIONAL <(sizeof(content) != 0), ContextComposer, CompilationUnit>
+			>
+		>;
+
+		/*using ModularTokenKwrdClassifier = TokenKeywordClassifier<
+			SystemConfiguration<
+				ENABLED <>
+			>
+		>;*/
+
+
+		StaticMatrix<3, 3> m{ // genre laisser un commentaire après SystemConfiguration genre /* transition configuration */
+			0, 1, 2,
+			3, 0, 0,
+			0, 4, 0
+		};
+
+		std::cout << m.at(2, 1) << "\n";
+
+
+
+		IntegerBacktrackingDFA<
+			dfa_transition<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
+		> dfa;
+
+
+		auto state = LexingStateType::STATE_START;
+		auto arg = '\n';
+
+		std::cout << "[IntegerBacktrackingDFA] result: " << dfa.m_.at(static_cast<int>(state), static_cast<int>(arg)) << "\n";
 
 	}
 
