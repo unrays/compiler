@@ -391,40 +391,41 @@ namespace PASS2_CONTENT_LEXING {
 /********************************************************************************/
 
 
-	enum class LexingStateType { // PEUT-ÊTRE À CHANGER, SET UTILISÉ DANS L'ESP ET TRÈS ORIENTÉ C++
-		STATE_START,
-		STATE_INVALID,
-		STATE_ERROR,
+	enum class LexingStateType : int { // PEUT-ÊTRE À CHANGER, SET UTILISÉ DANS L'ESP ET TRÈS ORIENTÉ C++
+		STATE_INVALID = -1,
 
-		STATE_IDENTIFIER,
-		STATE_DELIMITER,
+		STATE_START = 0,
+		//STATE_ERROR,
 
-		STATE_DELIM_COLON,
-		STATE_DELIM_SEMI,
-		STATE_DELIM_COMA,
+		STATE_IDENTIFIER = 1,
+		STATE_DELIMITER = 2,
 
-		STATE_DELIM_R_PAREN,
-		STATE_DELIM_L_PAREN,
+		STATE_DELIM_COLON = 3,
+		STATE_DELIM_SEMI = 4,
+		STATE_DELIM_COMA = 5,
 
-		STATE_DELIM_R_CURLY,
-		STATE_DELIM_L_CURLY,
+		STATE_DELIM_R_PAREN = 6,
+		STATE_DELIM_L_PAREN = 7,
 
-		STATE_DELIM_R_SQUARE,
-		STATE_DELIM_L_SQUARE,
+		STATE_DELIM_R_CURLY = 8,
+		STATE_DELIM_L_CURLY = 9,
 
-		STATE_DELIM_R_ANGLE,
-		STATE_DELIM_L_ANGLE,
+		STATE_DELIM_R_SQUARE = 10,
+		STATE_DELIM_L_SQUARE = 11,
+
+		STATE_DELIM_R_ANGLE = 12,
+		STATE_DELIM_L_ANGLE = 13,
 
 		STATE_HASH,//deprec
-		STATE_PREPROCESSOR,
-		STATE_NEWLINE,
+		STATE_PREPROCESSOR = 14,
+		STATE_NEWLINE = 15,
 
 
-		STATE_OPERATOR,
+		STATE_OPERATOR = 16,
 
-		STATE_NUMBER,
+		STATE_NUMBER = 17,
 
-		STATE_WHITESPACE,
+		STATE_WHITESPACE = 18,
 	};
 
 
@@ -558,19 +559,23 @@ namespace PASS2_CONTENT_LEXING {
 			: m_{ entries... } {}
 
 		consteval StaticMatrix(std::array<int, R * C> arr)
-			: m_(arr) {}
+			: m_{ arr } {}
 
 	public:
 		[[nodiscard]] constexpr const auto& at(std::size_t i, std::size_t j) const noexcept {
+			#if 0
 			if (i >= R || j >= C) [[unlikely]]
 				throw std::out_of_range("Matrix out of bounds.");
+			#endif
 
 			return m_[i * C + j];
 		}
 
 		[[nodiscard]] constexpr auto& at(std::size_t i, std::size_t j) noexcept {
+			#if 0
 			if (i >= R || j >= C) [[unlikely]]
 				throw std::out_of_range("Matrix out of bounds.");
+			#endif
 
 			return m_[i * C + j];
 		}
@@ -588,6 +593,22 @@ namespace PASS2_CONTENT_LEXING {
 	public:
 
 
+
+	/*	template<typename Tp, typename Up>
+		[[nodiscard]] static constexpr Tp step(Tp state, Up input) noexcept(false) {
+			return static_cast<Tp>(
+				table[static_cast<int>(state) * X + static_cast<int>(input)]
+			);
+		}*/
+
+
+
+
+
+
+
+
+
 		// ajouter le current, previous et starting state.
 
 	/*private:*/
@@ -599,8 +620,45 @@ namespace PASS2_CONTENT_LEXING {
 
 
 
+
+		[[nodiscard]] constexpr bool step(int current_state, int predicate) {
+			if (predicate < 0 || predicate >= maximum_evaluated_size) [[unlikely]] {
+				return false;
+			}
+
+			previous_state = current_state;
+			current_state = m_.at(current_state, predicate);
+
+			return current_state != -1;
+		}
+
+
+		[[nodiscard]] constexpr int get_current() const noexcept {
+			return current_state;
+		}
+
+		[[nodiscard]] constexpr int get_previous() const noexcept {
+			return previous_state;
+		}
+
+		// PEUT-ÊTRE QU'IL FAUDRAIT LAISSER CE DFA TOTALEMENT AVEC DES INT ET FAIRE UNE AUTRE COUCHE PAR
+		// DESSUS QUI ELLE RESTREINT L'UTILISATION AUX TRUC DE NOS CONFIGURATIONS.
+
+		// ÇA SIGNIFIERAIT QUE 
+
+
+
+
+
+
 		// si un input dépasse la taille, ca explose ICI ICI ICI ICI
 
+
+		static constexpr int state_start = 0;
+		static constexpr int state_invalid = -1; // pas certain qu'il serve
+		
+		int current_state = state_start;
+		int previous_state = state_start;
 
 
 
@@ -612,11 +670,143 @@ namespace PASS2_CONTENT_LEXING {
 						= static_cast<int>(Entries::target)
 			), ...);
 
+			// remplir a -1
+
 			return arr;
 		}
 
 
 		StaticMatrix<maximum_evaluated_size, maximum_evaluated_size> m_{ testGenerateArr() };
+	};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	template<std::size_t RS, std::size_t RC>
+	struct FlatMatrixDFA  final {
+	protected:
+		using integer_type = int;
+
+		static constexpr integer_type default_state_start = 0;
+		static constexpr integer_type default_invalid_state = -1;
+
+		static constexpr std::array<integer_type, RS * RC> default_matrix_table = []() {
+			std::array<integer_type, RS * RC> temp;
+			temp.fill(-1);
+			return temp;
+		}();
+		
+	public:
+		explicit consteval FlatMatrixDFA(
+			std::array<integer_type, RS * RC> table = default_matrix_table,
+			integer_type start_state   = default_state_start,								 
+			integer_type invalid_state = default_invalid_state
+		)	
+			: matrix_{ table }
+			, start_state_(start_state)
+			, invalid_state_(invalid_state)
+		{}
+
+	public:
+		[[nodiscard]] constexpr bool step(int predicate) {
+			if (predicate < 0 || predicate >= RC) [[unlikely]] {
+				return false;
+			}
+
+			previous_state_ = current_state_;
+			current_state_ = matrix_.at(current_state_, predicate);
+
+			return current_state_ != default_invalid_state;
+		}
+
+		[[nodiscard]] constexpr int get_current() const noexcept {
+			return current_state_;
+		}
+
+		[[nodiscard]] constexpr int get_previous() const noexcept {
+			return previous_state_;
+		}
+
+	private:
+		StaticMatrix<RS, RC> matrix_;
+
+		integer_type start_state_;
+		integer_type invalid_state_;
+
+		integer_type current_state_  = start_state_;
+		integer_type previous_state_ = start_state_;
+
+	};
+
+
+	template<typename... Entries>
+	struct StaticDFA  final {
+	protected:
+		using first_entry_type = std::tuple_element_t<0, std::tuple<Entries...>>;
+
+		using row_type = decltype(first_entry_type::source);
+		using column_type = decltype(first_entry_type::predicate);
+
+		// static assert genre si il n'est pas convertible en int
+
+	protected:
+		static constexpr std::size_t row_maximum_size = std::max(
+			std::max({ static_cast<int>(Entries::source)... }),
+			std::max({ static_cast<int>(Entries::target)... })
+		) + 1;
+		static constexpr std::size_t column_maximum_size = std::max(
+			{ static_cast<int>(Entries::predicate)...
+		}) + 1;
+
+	public:
+		[[nodiscard]] constexpr bool step(column_type predicate) {
+			return dfa_.step(static_cast<int>(predicate));
+		}
+
+		[[nodiscard]] constexpr row_type current()
+			const noexcept(noexcept(dfa_.get_current()))
+		{
+			return static_cast<row_type>(dfa_.get_current());
+		}
+
+		[[nodiscard]] constexpr row_type previous()
+			const noexcept(noexcept(dfa_.get_previous()))
+		{
+			return static_cast<row_type>(dfa_.get_previous());
+		}
+
+	private:
+		static consteval std::array<int, row_maximum_size * column_maximum_size> generateDfaTable() {
+			auto temp = []() {
+				std::array<int, row_maximum_size* column_maximum_size> arr;
+				arr.fill(-1);
+				return arr;
+			}();
+
+			((
+				temp[static_cast<int>(Entries::source) * column_maximum_size + static_cast<int>(Entries::predicate)]
+						= static_cast<int>(Entries::target)
+			), ...);
+
+			return temp;
+		}
+
+	private:
+		FlatMatrixDFA<row_maximum_size, column_maximum_size> dfa_{ generateDfaTable() };
+
 	};
 
 
@@ -1437,6 +1627,10 @@ export void main_instruction_for_passes() {
 
 		std::cout << "[IntegerBacktrackingDFA] result: " << dfa.m_.at(static_cast<int>(state), static_cast<int>(arg)) << "\n";
 
+
+
+
+		//AdapterDFA adapter;
 	}
 
 }
