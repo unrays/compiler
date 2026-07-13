@@ -391,41 +391,31 @@ namespace PASS2_CONTENT_LEXING {
 /********************************************************************************/
 
 
-	enum class LexingStateType : int { // PEUT-ÊTRE À CHANGER, SET UTILISÉ DANS L'ESP ET TRÈS ORIENTÉ C++
-		STATE_INVALID = -1,
+	enum struct LexState : int {
+		Invalid = -1,
+		Start = 0,
 
-		STATE_START = 0,
-		//STATE_ERROR,
+		Identifier = 10,
+		Operator = 11,
+		Number = 12,
 
-		STATE_IDENTIFIER = 1,
-		STATE_DELIMITER = 2,
+		DelimiterOpaque = 20,
+		DelimiterColon = 21,
+		DelimiterSemi = 22,
+		DelimiterComma = 23,
 
-		STATE_DELIM_COLON = 3,
-		STATE_DELIM_SEMI = 4,
-		STATE_DELIM_COMA = 5,
+		DelimiterRParen = 30,
+		DelimiterLParen = 31,
+		DelimiterLCurly = 32,
+		DelimiterRCurly = 33,
+		DelimiterRSquare = 34,
+		DelimiterLSquare = 35,
+		DelimiterRAngle = 36,
+		DelimiterLAngle = 37,
 
-		STATE_DELIM_R_PAREN = 6,
-		STATE_DELIM_L_PAREN = 7,
-
-		STATE_DELIM_R_CURLY = 8,
-		STATE_DELIM_L_CURLY = 9,
-
-		STATE_DELIM_R_SQUARE = 10,
-		STATE_DELIM_L_SQUARE = 11,
-
-		STATE_DELIM_R_ANGLE = 12,
-		STATE_DELIM_L_ANGLE = 13,
-
-		STATE_HASH,//deprec
-		STATE_PREPROCESSOR = 14,
-		STATE_NEWLINE = 15,
-
-
-		STATE_OPERATOR = 16,
-
-		STATE_NUMBER = 17,
-
-		STATE_WHITESPACE = 18,
+		Preprocessor = 40,
+		Newline = 41,
+		Whitespace = 42
 	};
 
 
@@ -446,107 +436,6 @@ namespace PASS2_CONTENT_LEXING {
 
 
 /********************************************************************************/
-
-
-	// TOTALEMENT NON TERMINÉ, IL FAUT ABSOLUMENT LE PAUFINER ET LE RENDRE PLUS STABLE, FONCTIONNE TEMPORAIREMENT
-	template<std::size_t X, std::size_t Y, typename... Entries> // mettre aussi les types admis
-	struct CompileTimeDfa {
-	public:
-
-		//table[state * N + input]
-
-
-		// genre is_catable_to_int, on recoit des types, pas des int directement
-
-
-	public:
-		[[nodiscard]] static constexpr int step_raw(int state, int input) {
-			return table[state * X + input];
-		}
-
-
-		// must be castable to integer, le return type mettre le type d'entrée state
-
-
-
-		// OK JE DEVRAIS FAIRE DEUX MODULES, EN GROS YA LE COMPILE TIME DFA ET 
-		// YA UN WRAPPER PAR DESSUS QUI EFFECTUE TOUT LE TRUC CHIANT AVEC LES MODULES
-
-		/*[[nodiscard]] static constexpr int step(int state, int input) noexcept {
-			return table[static_cast<int>(state) * X + static_cast<int>(input)];
-		}*/
-
-		template<typename Tp, typename Up>
-		[[nodiscard]] static constexpr Tp step(Tp state, Up input) noexcept(false) {
-			return static_cast<Tp>(
-				table[static_cast<int>(state) * X + static_cast<int>(input)]
-			);
-		}
-
-		template<typename Tp, typename Up>
-			requires std::convertible_to<Tp, int>&&
-		std::convertible_to<Up, int>&&
-			std::convertible_to<int, Tp>
-			[[nodiscard]] static constexpr Tp step_with_concept(Tp state, Up input) noexcept {
-			return static_cast<Tp>(
-				table[static_cast<int>(state) * X + static_cast<int>(input)]
-			);
-		}
-
-	public:
-
-		static constexpr auto table = [] {
-			std::array<int, X* Y> t{};
-
-			if constexpr (X * Y > 10) { // teporaire mock
-
-
-				((
-					t[static_cast<int>(Entries::source) * X + static_cast<int>(Entries::predicate)]
-						= static_cast<int>(Entries::target)
-					), ...);
-
-			}
-
-			//if constexpr (X * Y > 10) {
-			//    //t[0][10] = 42;
-
-
-
-
-			//    t[0 * X + 10] = 42;
-			//}
-
-			return t;
-			}();
-
-
-
-		/*static constexpr int table2[X * Y] = {
-			-1, -1, -1
-		}*/
-
-
-		//static constexpr int table2[N] = [] {
-		//    //std::array<int, N> t{};
-
-		//    int t[N]{};
-
-		//    if constexpr (N > 10) {
-		//        //t[0][10] = 42;
-
-
-
-
-		//        t[0 * N + 10] = 42;
-		//    }
-
-		//    return t;
-		//}();;
-
-
-
-	};
 
 
 	template<std::size_t R, std::size_t C>
@@ -588,111 +477,7 @@ namespace PASS2_CONTENT_LEXING {
 	};
 
 
-	template<typename... Entries> // en attendant, probablement utiliser Configuration
-	struct IntegerBacktrackingDFA { // Longest-match DFA ou Maximum Munch DFA ou Backtracking DFA
-	public:
-
-
-
-	/*	template<typename Tp, typename Up>
-		[[nodiscard]] static constexpr Tp step(Tp state, Up input) noexcept(false) {
-			return static_cast<Tp>(
-				table[static_cast<int>(state) * X + static_cast<int>(input)]
-			);
-		}*/
-
-
-
-
-
-
-
-
-
-		// ajouter le current, previous et starting state.
-
-	/*private:*/
-		static constexpr std::size_t maximum_evaluated_size = std::max(
-			std::max({ static_cast<int>(Entries::source)... }),
-			std::max({ static_cast<int>(Entries::predicate)... })
-			// peut-être mettre aussi le target
-		);
-
-
-
-
-		[[nodiscard]] constexpr bool step(int current_state, int predicate) {
-			if (predicate < 0 || predicate >= maximum_evaluated_size) [[unlikely]] {
-				return false;
-			}
-
-			previous_state = current_state;
-			current_state = m_.at(current_state, predicate);
-
-			return current_state != -1;
-		}
-
-
-		[[nodiscard]] constexpr int get_current() const noexcept {
-			return current_state;
-		}
-
-		[[nodiscard]] constexpr int get_previous() const noexcept {
-			return previous_state;
-		}
-
-		// PEUT-ÊTRE QU'IL FAUDRAIT LAISSER CE DFA TOTALEMENT AVEC DES INT ET FAIRE UNE AUTRE COUCHE PAR
-		// DESSUS QUI ELLE RESTREINT L'UTILISATION AUX TRUC DE NOS CONFIGURATIONS.
-
-		// ÇA SIGNIFIERAIT QUE 
-
-
-
-
-
-
-		// si un input dépasse la taille, ca explose ICI ICI ICI ICI
-
-
-		static constexpr int state_start = 0;
-		static constexpr int state_invalid = -1; // pas certain qu'il serve
-		
-		int current_state = state_start;
-		int previous_state = state_start;
-
-
-
-		static consteval std::array<int, maximum_evaluated_size * maximum_evaluated_size> testGenerateArr() {
-			std::array<int, maximum_evaluated_size * maximum_evaluated_size> arr{};
-
-			((
-				arr[static_cast<int>(Entries::source) * maximum_evaluated_size + static_cast<int>(Entries::predicate)]
-						= static_cast<int>(Entries::target)
-			), ...);
-
-			// remplir a -1
-
-			return arr;
-		}
-
-
-		StaticMatrix<maximum_evaluated_size, maximum_evaluated_size> m_{ testGenerateArr() };
-	};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/********************************************************************************/
 
 
 	template<std::size_t RS, std::size_t RC>
@@ -740,6 +525,18 @@ namespace PASS2_CONTENT_LEXING {
 			return previous_state_;
 		}
 
+	public:
+
+
+
+
+	public:
+		void reset() noexcept {
+			current_state_ = start_state_;
+			previous_state_ = start_state_;
+		}
+
+
 	private:
 		StaticMatrix<RS, RC> matrix_;
 
@@ -753,52 +550,124 @@ namespace PASS2_CONTENT_LEXING {
 
 
 	template<typename... Entries>
-	struct StaticDFA  final {
+		//requires (std::is_same_v<int, Entries> || ...)
+	struct StaticDFA  final { // genre configurable ou modularDfa
 	protected:
+		using integer_type = int;
+
 		using first_entry_type = std::tuple_element_t<0, std::tuple<Entries...>>;
 
-		using row_type = decltype(first_entry_type::source);
-		using column_type = decltype(first_entry_type::predicate);
+		using row_type = std::decay_t<decltype(first_entry_type::source)>; // genre remove ou decay
+		using column_type = std::decay_t<decltype(first_entry_type::predicate)>;
+
+		// every entries doivent avoir le meme type pour chacuns. 
+
+		/*static consteval extract_underlying_subtype() {
+
+		}*/
+
+		/************************************************/
+
+		/*template<typename Tp>
+		using extract_underlying_t = typename std::conditional_t<
+			std::is_enum_v<Tp>,
+			std::underlying_type_t<std::decay_t<Tp>>,
+			std::type_identity<Tp>
+		>;
+
+		static_assert(
+			((
+				std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().source)>, integer_type>    &&
+				std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().predicate)>, integer_type> &&
+				std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().target)>, integer_type>
+			) && ...),
+			"message"
+		);*/
+
+
+		/************************************************/
+
+
+		/*static_assert(
+			((
+				requires(Entries e) {
+					requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.source)>>;
+					requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.predicate)>>;
+					requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.target)>>;
+				}
+			) && ...),
+			"message"
+		);
+*/
+
+
+	/*	static_assert(
+			(std::is_convertible_v<
+				std::conditional_t<
+					std::is_enum_v<std::decay_t<decltype(Entries::source)>>,
+					std::underlying_type_t<std::decay_t<decltype(Entries::source)>>,
+					std::decay_t<decltype(Entries::source)>
+				>
+			, integer_type> && ...),
+
+			"message"
+			
+			
+		);*/
+
+		/*static_assert(
+			std::conditional_t<
+				std::is_enum_v<row_type>,
+				
+			>
+			
+		);*/
 
 		// static assert genre si il n'est pas convertible en int
 
 	protected:
 		static constexpr std::size_t row_maximum_size = std::max(
-			std::max({ static_cast<int>(Entries::source)... }),
-			std::max({ static_cast<int>(Entries::target)... })
+			std::max({ static_cast<integer_type>(Entries::source)... }),
+			std::max({ static_cast<integer_type>(Entries::target)... })
 		) + 1;
+
 		static constexpr std::size_t column_maximum_size = std::max(
-			{ static_cast<int>(Entries::predicate)...
+			{ static_cast<integer_type>(Entries::predicate)...
 		}) + 1;
 
 	public:
 		[[nodiscard]] constexpr bool step(column_type predicate) {
-			return dfa_.step(static_cast<int>(predicate));
+			return dfa_.step(static_cast<integer_type>(predicate));
 		}
 
-		[[nodiscard]] constexpr row_type current()
+		[[nodiscard]] constexpr row_type get_current_state()
 			const noexcept(noexcept(dfa_.get_current()))
 		{
 			return static_cast<row_type>(dfa_.get_current());
 		}
 
-		[[nodiscard]] constexpr row_type previous()
+		[[nodiscard]] constexpr row_type get_previous_state()
 			const noexcept(noexcept(dfa_.get_previous()))
 		{
 			return static_cast<row_type>(dfa_.get_previous());
 		}
 
+	public:
+		void reset() noexcept(noexcept(dfa_.reset())) {
+			dfa_.reset();
+		}
+
 	private:
-		static consteval std::array<int, row_maximum_size * column_maximum_size> generateDfaTable() {
+		static consteval std::array<integer_type, row_maximum_size * column_maximum_size> generateDfaTable() {
 			auto temp = []() {
-				std::array<int, row_maximum_size* column_maximum_size> arr;
+				std::array<integer_type, row_maximum_size * column_maximum_size> arr;
 				arr.fill(-1);
 				return arr;
 			}();
 
 			((
-				temp[static_cast<int>(Entries::source) * column_maximum_size + static_cast<int>(Entries::predicate)]
-						= static_cast<int>(Entries::target)
+				temp[static_cast<integer_type>(Entries::source) * column_maximum_size + static_cast<integer_type>(Entries::predicate)]
+						= static_cast<integer_type>(Entries::target)
 			), ...);
 
 			return temp;
@@ -831,7 +700,7 @@ namespace PASS2_CONTENT_LEXING {
 	using CONDITIONAL = ConfigurationRule<Condition, Target, Predicate>;
 
 
-
+/********************************************************************************/
 
 
 	template<typename... Ts>
@@ -852,6 +721,7 @@ namespace PASS2_CONTENT_LEXING {
 			Tail
 		>;
 	};
+
 
 /********************************************************************************/
 
@@ -928,45 +798,40 @@ namespace PASS2_CONTENT_LEXING {
 
 /********************************************************************************/
 
+	enum struct TokenKind {
+		Identifier = 0,
 
-	enum struct TokenType {
-		Identifier,
+		KeywordOpaque = 10,
+		KeywordType = 11,
+		KeywordQualifier = 12,
+		KeywordSpecifier = 13,
+		KeywordModifier = 14,
+		KeywordAlignment = 15,
+		KeywordControl = 16,
+		KeywordAccess = 17,
 
-		Keyword,
+		DelimiterOpaque = 20,
+		DelimiterColon = 21,
+		DelimiterSemicolon = 22,
+		DelimiterComma = 23,
 
-		Kwrd_Type,
-		Kwrd_Qualifier,
-		Kwrd_Specifier,
-		Kwrd_Modifier,
-		Kwrd_Alignment,
-		Kwrd_Control,
-		Kwrd_Access,
+		DelimiterRParen = 30,
+		DelimiterLParen = 31,
+		DelimiterLCurly = 32,
+		DelimiterRCurly = 33,
+		DelimiterRSquare = 34,
+		DelimiterLSquare = 35,
+		DelimiterRAngle = 36,
+		DelimiterLAngle = 37,
 
-		Delimiter,
+		Preprocessor = 40,
+		Operator = 41,
+		Number = 42,
+		Whitespace = 43,
+		Newline = 44,
 
-		Delim_Colon,
-		Delim_Semicolon,
-		Delim_Coma,
-
-		Delim_RParen,
-		Delim_LParen,
-
-		Delim_LCurly,
-		Delim_RCurly,
-
-		Delim_RSquare,
-		Delim_LSquare,
-
-		Delim_RAngle,
-		Delim_LAngle,
-
-		Preprocessor,
-		Operator,
-		Number,
-		Whitespace,
-		Newline,
-		Invalid,
-		Unknown
+		Invalid = 90,
+		Unknown = 91
 	};
 
 
@@ -986,7 +851,7 @@ namespace PASS2_CONTENT_LEXING {
 	export template<typename Predicate, auto Corresponding>
 	struct TokenClassifierContext final {
 		using predicate_type = Predicate;
-		static constexpr TokenType corresponding = Corresponding;
+		static constexpr TokenKind corresponding = Corresponding;
 	};
 
 	template<typename T>
@@ -1006,20 +871,20 @@ namespace PASS2_CONTENT_LEXING {
 	struct TokenKeywordClassifier2 final { // re-categorizer?
 		private:
 			template<typename Current, typename... Remaining>
-			[[nodiscard]] static constexpr TokenType evaluate_recursively(std::string_view sv)
+			[[nodiscard]] static constexpr TokenKind evaluate_recursively(std::string_view sv)
 				noexcept(noexcept(Current::predicate_type::matches(sv)))
 			{
 				if (Current::predicate_type::matches(sv))
 					return Current::corresponding;
 
 				if constexpr (sizeof...(Remaining) == 0)
-					return TokenType::Unknown;
+					return TokenKind::Unknown;
 				else
 					return evaluate_recursively<Remaining...>(sv);
 			}
 
 		public:
-			[[nodiscard]] static constexpr TokenType transform(std::string_view sv)
+			[[nodiscard]] static constexpr TokenKind transform(std::string_view sv)
 				noexcept(noexcept(evaluate_recursively<Contexts...>(sv)))
 			{
 				return evaluate_recursively<Contexts...>(sv);
@@ -1040,7 +905,7 @@ namespace PASS2_CONTENT_LEXING {
 
 
 
-		TokenType kind;
+		TokenKind kind;
 
 
 		//const char* lexeme; // string interné
@@ -1159,38 +1024,84 @@ namespace PASS2_CONTENT_LEXING {
 
 	// DEVRAIS DEVENIR GENRE UNE CONFIGURATION PAR POLICY OU RULES, QUELQUE CHOSE DU GENRE.
 
-	constexpr TokenType state_to_token(LexingStateType _) {
+	constexpr TokenKind state_to_token(LexState _) {
 		switch (_) {
-		case LexingStateType::STATE_IDENTIFIER: return TokenType::Identifier;
-		case LexingStateType::STATE_DELIMITER: return TokenType::Delimiter;
+		case LexState::Identifier: return TokenKind::Identifier;
+		case LexState::DelimiterOpaque: return TokenKind::DelimiterOpaque;
 
-		case LexingStateType::STATE_OPERATOR: return TokenType::Operator;
+		case LexState::Operator: return TokenKind::Operator;
 
-		case LexingStateType::STATE_DELIM_COLON: return TokenType::Delim_Colon;
-		case LexingStateType::STATE_DELIM_SEMI: return TokenType::Delim_Semicolon;
-		case LexingStateType::STATE_DELIM_COMA: return TokenType::Delim_Coma;
+		case LexState::DelimiterColon: return TokenKind::DelimiterColon;
+		case LexState::DelimiterSemi: return TokenKind::DelimiterSemicolon;
+		case LexState::DelimiterComma: return TokenKind::DelimiterComma;
 
-		case LexingStateType::STATE_DELIM_L_PAREN: return TokenType::Delim_LParen;
-		case LexingStateType::STATE_DELIM_R_PAREN: return TokenType::Delim_RParen;
+		case LexState::DelimiterLParen: return TokenKind::DelimiterLParen;
+		case LexState::DelimiterRParen: return TokenKind::DelimiterRParen;
 
-		case LexingStateType::STATE_DELIM_L_CURLY: return TokenType::Delim_LCurly;
-		case LexingStateType::STATE_DELIM_R_CURLY: return TokenType::Delim_RCurly;
+		case LexState::DelimiterLCurly: return TokenKind::DelimiterLCurly;
+		case LexState::DelimiterRCurly: return TokenKind::DelimiterRCurly;
 
-		case LexingStateType::STATE_DELIM_L_SQUARE: return TokenType::Delim_LSquare;
-		case LexingStateType::STATE_DELIM_R_SQUARE: return TokenType::Delim_RSquare;
+		case LexState::DelimiterLSquare: return TokenKind::DelimiterLSquare;
+		case LexState::DelimiterRSquare: return TokenKind::DelimiterRSquare;
 
-		case LexingStateType::STATE_DELIM_L_ANGLE: return TokenType::Delim_LAngle;
-		case LexingStateType::STATE_DELIM_R_ANGLE: return TokenType::Delim_RAngle;
+		case LexState::DelimiterLAngle: return TokenKind::DelimiterLAngle;
+		case LexState::DelimiterRAngle: return TokenKind::DelimiterRAngle;
 
-		case LexingStateType::STATE_PREPROCESSOR: return TokenType::Preprocessor;
-		case LexingStateType::STATE_NEWLINE: return TokenType::Newline;
+		case LexState::Preprocessor: return TokenKind::Preprocessor;
+		case LexState::Newline: return TokenKind::Newline;
 
-		case LexingStateType::STATE_NUMBER: return TokenType::Number;
-		case LexingStateType::STATE_INVALID: return TokenType::Unknown;
+		case LexState::Number: return TokenKind::Number;
+		case LexState::Invalid: return TokenKind::Unknown;
 
-		default: return TokenType::Invalid;
+		default: return TokenKind::Invalid;
 		}
 	}
+
+
+	template<auto Source, auto Target>
+	struct EnumMapperEntry {
+		static constexpr auto source = Source;
+		static constexpr auto target = Target;
+	};
+
+	template <typename T, typename... AllowedTypes>
+	inline constexpr bool is_any_of_v = (std::is_same_v<T, AllowedTypes> || ...);
+
+
+
+
+	template<typename... Rules> // must be EnumMapperEntry
+	struct EnumMapper {
+	protected:
+		using rule_model_t = std::tuple_element_t<0, std::tuple<Rules...>>;
+
+		using first_enum_t = std::decay_t<decltype(rule_model_t::source)>;
+		using second_enum_t = std::decay_t<decltype(rule_model_t::target)>;
+
+	protected:
+		static_assert(
+			((
+				is_any_of_v<std::decay_t<decltype(Rules::source)>, first_enum_t, second_enum_t> &&
+				is_any_of_v<std::decay_t<decltype(Rules::target)>, first_enum_t, second_enum_t>
+			) && ...),
+			"EnumMapper error: Too many distinct state types detected. A maximum of two are allowed."
+		);
+
+	public:
+		template<typename Tp>
+			requires(is_any_of_v<std::decay_t<Tp>, first_enum_t, second_enum_t>)
+		[[nodiscard]] static constexpr decltype(auto) map(Tp&& source)
+			noexcept((noexcept(source == Rules::source) && ...))
+		{
+			return //(noexcept(source == Rules::source) && ...) PEUT ETRE DEUX FONCTIONS
+
+				// lui il utilise les deux fonctions d'en bas pour trouver DES DEUX COTÉS
+		}
+
+		// find_target (recherche)
+
+		// find_source (rechreche inversée)
+	};
 
 
 /********************************************************************************/
@@ -1202,7 +1113,7 @@ namespace PASS2_CONTENT_LEXING {
 
 	template<
 		//typename Reader, typename Tracker,
-		typename LexingAutomaton, typename Recategorizer
+		typename LexingAutomaton, typename Recategoriser
 	>
 	struct Lexer {
 
@@ -1220,7 +1131,7 @@ namespace PASS2_CONTENT_LEXING {
 			tokens.reserve(1 << 10); // 1024
 
 
-			LexingStateType current_state = LexingStateType::STATE_START;
+			LexState current_state = LexState::Start;
 
 			const char* current_ptr = source.data();
 			const char* current_seg_start = current_ptr;
@@ -1239,10 +1150,10 @@ namespace PASS2_CONTENT_LEXING {
 				char c = *current;
 
 				SourceLocation cur_location = tracker.update(c);
-				LexingStateType next_state = automaton.step(current_state, c);
+				LexState next_state = automaton.step(current_state, c);
 
 
-				if (next_state == LexingStateType::STATE_INVALID) [[unlikely]] {
+				if (next_state == LexState::Invalid) [[unlikely]] {
 					tokens.emplace_back(
 						state_to_token(current_state),
 						std::string_view(current_seg_start, static_cast<std::ptrdiff_t>(current - current_seg_start)), // en attendant le interner
@@ -1250,7 +1161,7 @@ namespace PASS2_CONTENT_LEXING {
 					);
 
 					current_seg_start = current; // pas 100% certain, à tester...
-					current_state = LexingStateType::STATE_START;
+					current_state = LexState::Start;
 				}
 
 			});
@@ -1311,8 +1222,8 @@ namespace PASS2_CONTENT_LEXING {
 		}
 
 
-		[[no_unique_address]] LexingAutomaton automaton;
-		[[no_unique_address]] Recategorizer recategorizer; // module séparé peut-être
+		[[no_unique_address]] LexingAutomaton automaton; // DEVRAIT PROBABLEMENT SE CONSOMMER COMME LES AUTRES, STATEFUL
+		[[no_unique_address]] Recategoriser recategoriser; // module séparé peut-être
 	};
 
 
@@ -1562,14 +1473,21 @@ export void main_instruction_for_passes() {
 			>
 		*/
 
-		using LexingAutomaton = CompileTimeDfa<15, 15,
+	/*	using LexingAutomaton = CompileTimeDfa<15, 15,
 
-			dfa_transition<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
+			dfa_transition<LexState::Start, '\n', LexState::Newline>
+		>;*/
+
+
+		using LexingAutomaton = StaticDFA<
+			dfa_transition<LexState::Start, '\n', LexState::Newline>
 		>;
 
+
+
 		using TokenKwrdClassifier = TokenKeywordClassifier2<
-			TokenClassifierContext<AccessKeywordMatchingPolicy, TokenType::Kwrd_Access>,
-			TokenClassifierContext<AlignmentKeywordMatchingPolicy, TokenType::Kwrd_Alignment>
+			TokenClassifierContext<AccessKeywordMatchingPolicy, TokenKind::KeywordAccess>,
+			TokenClassifierContext<AlignmentKeywordMatchingPolicy, TokenKind::KeywordAlignment>
 		>;
 
 		using LexicalAnalyzer = Lexer<LexingAutomaton, TokenKwrdClassifier>;
@@ -1579,12 +1497,14 @@ export void main_instruction_for_passes() {
 
 		LexicalAnalyzer lexer;
 
+#if 0
 		std::vector<Token> tokens = lexer.tokenize<CharReader, PositionTracker>(content);
 
 		std::cout << "Tokens: \n";
 		for (auto const& t : tokens) {
 			std::cout << '[' << t.lexeme << ']';
 		}
+#endif
 
 
 
@@ -1617,16 +1537,27 @@ export void main_instruction_for_passes() {
 
 
 
-		IntegerBacktrackingDFA<
-			dfa_transition<LexingStateType::STATE_START, '\n', LexingStateType::STATE_NEWLINE>
-		> dfa;
-
-
-		auto state = LexingStateType::STATE_START;
+		auto state = LexState::Start;
 		auto arg = '\n';
 
-		std::cout << "[IntegerBacktrackingDFA] result: " << dfa.m_.at(static_cast<int>(state), static_cast<int>(arg)) << "\n";
+		//std::cout << "[IntegerBacktrackingDFA] result: " << dfa.m_.at(static_cast<int>(state), static_cast<int>(arg)) << "\n";
 
+
+
+		/********************/
+
+
+		using LexingDFA = StaticDFA<
+			dfa_transition<LexState::Start, '\n', LexState::Newline>
+		>;
+
+		LexingDFA lexdfa{};
+
+		std::cout << "[LexingDFA -> before] result: " << static_cast<int>(lexdfa.get_current_state()) << "\n";
+
+		lexdfa.step('\t');
+
+		std::cout << "[LexingDFA -> after] result: " << static_cast<int>(lexdfa.get_current_state()) << "\n";
 
 
 
