@@ -703,19 +703,25 @@ namespace PASS2_CONTENT_LEXING {
 /********************************************************************************/
 
 
+	template<typename T>
+	concept SystemConfigurationConcept = requires {
+		typename T::as_tuple;
+	} && (requires { typename T::Tail; } || std::same_as<typename T::as_tuple, std::tuple<>>);
+
+
 	template<typename... Ts>
 	struct SystemConfiguration;
 
 	template<>
 	struct SystemConfiguration<> {
-		using type = std::tuple<>;
+		using as_tuple = std::tuple<>;
 	};
 
 	template<typename First, typename... Rest> // must be ConfigurationRule
 	struct SystemConfiguration<First, Rest...> {
-		using Tail = typename SystemConfiguration<Rest...>::type;
+		using Tail = typename SystemConfiguration<Rest...>::as_tuple;
 
-		using type = std::conditional_t<
+		using as_tuple = std::conditional_t<
 			First::condition,
 			decltype(std::tuple_cat(std::tuple<First>{}, Tail{})),
 			Tail
@@ -724,6 +730,148 @@ namespace PASS2_CONTENT_LEXING {
 
 
 /********************************************************************************/
+
+
+	// en gros un seul entryconfiguration qui prends variadic, ce système contient sizeof... et un tuple pour tupleelem
+	// pour chaques systèmes, on définit un masque qui, par exemple, définit que using SyntaxicRule = tuple_elmt(1), etc...
+	// et on ignore le reste des arguments, on met soit un warning ou un static_assert directement. 
+
+
+	template<typename T>
+	concept ConfigurationEntryConcept = requires {
+		{ T::condition } -> std::same_as<bool>;
+		{ T::size } -> std::same_as<std::size_t>;
+	};
+
+	template<bool Condition, typename... Ts>
+	struct GenericConfigurationEntry {
+		static constexpr bool condition = Condition; // ajouté par la suite, il est probablement a la bonne place
+
+		static constexpr std::size_t size = sizeof...(Ts);
+	};
+
+
+
+
+	template<typename Container>
+	struct make_tuple_from_container;
+
+	template<template<auto, typename...> typename Container, bool Condition, typename... Ts>
+	struct make_tuple_from_container<Container<Condition, Ts...>> {
+		using type = std::tuple<Ts...>;
+	};
+
+	template<typename Container>
+	using make_tuple_from_container_t = typename make_tuple_from_container<Container>::type;
+
+
+
+	// le static assert avec ErrMsg est uniquement C++26 alors il faudrait faire genre un SMART_ASSERT
+	// ou quelque chose du genre avec #if c__plusplus
+
+	template<
+		/*ConfigurationEntryConcept*/ typename EntryT,
+		std::size_t               ReqSize,
+		fixed_string			  ErrMsg = "This is the default error message!"
+	>
+	struct ConfigurationConstraint { // changer le nom
+	protected:
+		static_assert(EntryT::size == ReqSize, "Constraint size mismatch!");
+		using tuple_t = make_tuple_from_container_t<EntryT>;
+	
+	public:
+		template<std::size_t N>
+		using get_element_at_t = std::tuple_element_t<N, tuple_t>;
+	}; // PEUT ETRE AUSSI FAIRE SYSTÈME QUI VÉRIFIE LES TYPES GENRE FAUT QUE 1 SOIT UN AUTOMATA
+
+	template</*ConfigurationEntryConcept*/ typename EntryT>
+	struct SystemConfigurationMask final : ConfigurationConstraint<EntryT, 2, "Custom mask error message."> {
+	public:
+		using rule_t	 = typename SystemConfigurationMask::template get_element_at_t<0>;
+		using behavior_t = typename SystemConfigurationMask::template get_element_at_t<1>;
+	};
+
+
+
+	//template<template<typename> typename Mask, typename ConfigTuple>
+	//struct apply_mask_on_container;
+
+	//template< template<typename> typename Mask, template<typename> typename Container, ConfigurationEntryConcept... Ts>
+	//struct apply_mask_on_container<Mask, Container<Ts...>> {
+	//public:
+	//	using as_tuple = std::tuple<Mask<Ts>...>;
+
+
+	//};
+
+
+
+	template<
+		typename ConfigSystem,
+		template<typename> typename Mask,
+		template<typename...> typename TargetContainer
+	>
+	struct apply_mask_on_configuration_system final {
+	public:
+		using type = decltype([]<typename... Ts>(std::tuple<Ts...>) {
+			return TargetContainer<Mask<Ts>...>{};
+		}(std::declval<typename ConfigSystem::as_tuple>()));
+	};
+
+	template<
+		typename ConfigSystem,
+		template<typename> typename Mask,
+		template<typename...> typename TargetContainer = std::tuple
+	>
+	using apply_mask_on_configuration_system_t =
+		typename apply_mask_on_configuration_system<ConfigSystem, Mask, TargetContainer>::type;
+
+
+	
+
+
+
+	//genre utiliser SystemConfiguration PAR DESSUS le système SystemConfigurationMask
+	
+	// PEUT-ÊTRE FAIRE UNE BASE QUI EFFECTUE LE TRAVAIL EN RAPPORT AVEC LE CONFIG SYSTEM
+
+	template<
+		SystemConfigurationConcept SystemConfig,
+		template<typename> typename MaskModel = SystemConfigurationMask
+	>
+	struct ConfigurableSystem {
+	protected:
+		using masked_configuration_t = apply_mask_on_configuration_system_t<SystemConfig, MaskModel>;
+
+	public:
+		void print_ruleset() {
+			std::cout << "Content of ruleset from ConfigurableSystem<...>: \n";
+
+			std::apply([](auto... m) {
+				((
+					//std::cout << "  entry: " << typeid(decltype(m)).name() << '\n',
+
+					std::cout << "   filtered entry: \n",
+
+					std::cout << "  \trule_t: " << typeid(typename decltype(m)::rule_t).name() << "\n",
+					std::cout << "  \tbehavior_t: " << typeid(typename decltype(m)::behavior_t).name() << "\n\n"
+				), ...);
+			}, ruleset_);
+		}
+
+
+
+	private:
+		masked_configuration_t ruleset_; // peut-être opter plus tard pour std::type_identity mais pour l'instant c'est ok
+
+	};
+
+
+
+
+
+
+
 
 
 	template<typename Configuration> 
@@ -1093,9 +1241,10 @@ namespace PASS2_CONTENT_LEXING {
 		[[nodiscard]] static constexpr decltype(auto) map(Tp&& source)
 			noexcept((noexcept(source == Rules::source) && ...))
 		{
-			return //(noexcept(source == Rules::source) && ...) PEUT ETRE DEUX FONCTIONS
+			//return //(noexcept(source == Rules::source) && ...) PEUT ETRE DEUX FONCTIONS
 
 				// lui il utilise les deux fonctions d'en bas pour trouver DES DEUX COTÉS
+				// JE SAIS PAS SI JE DOIS RESTER AVEC UNIQUEMENT LES ENTRIES OU FAIRE GENRE SI UN, ON REND L'AUTRE VALIDE
 		}
 
 		// find_target (recherche)
@@ -1562,6 +1711,22 @@ export void main_instruction_for_passes() {
 
 
 		//AdapterDFA adapter;
+
+
+
+
+		using MySystem = ConfigurableSystem<
+			SystemConfiguration<
+				GenericConfigurationEntry	<true, CharReader, PositionTracker>,
+				GenericConfigurationEntry	<true, MockModuleC, MockModuleD>
+			>
+		>;
+
+		MySystem sys;
+
+		std::cout << "\n";
+		sys.print_ruleset();
+		std::cout << "\n\n";
 	}
 
 }
