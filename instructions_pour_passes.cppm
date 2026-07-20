@@ -882,6 +882,165 @@ namespace PASS2_CONTENT_LEXING {
 
 /********************************************************************************/
 
+// NOUVEAU SYSTÈME DE CONFIG
+
+
+	template<typename... Ts>
+	struct ConfigurationFilterer;
+
+	template<>
+	struct ConfigurationFilterer<> {
+		using as_tuple = std::tuple<>;
+	};
+
+	template<typename First, typename... Rest> // must be ConfigurationRule
+	struct ConfigurationFilterer<First, Rest...> {
+		using Tail = typename ConfigurationFilterer<Rest...>::as_tuple;
+
+		using as_tuple = std::conditional_t <
+			First::condition,
+			decltype(std::tuple_cat(std::tuple<First>{}, Tail{})),
+			Tail
+		> ;
+	};
+
+	/***/
+
+
+
+	template<typename T>
+	struct enabled_disabled_filter {
+		static constexpr bool value = T::condition;
+	};
+
+	template<typename T, template<typename> typename Predicate>
+	using filter_element_t = std::conditional_t<Predicate<T>::value, std::tuple<T>, std::tuple<>>;
+
+	template<typename T, template<typename> typename Predicate>
+	struct FilterHelper;
+
+	template<typename... Args, template<typename> typename Predicate>
+	struct FilterHelper<std::tuple<Args...>, Predicate> {
+		using type = decltype(std::tuple_cat(std::declval<filter_element_t<Args, Predicate>>()...));
+	};
+
+
+
+
+
+	template<typename T>
+	struct transform_configuration_entry_in_tuple;
+	
+	template<template<auto, typename...> typename Entry, bool Condition, typename... Ts>
+	struct transform_configuration_entry_in_tuple<Entry<Condition, Ts...>> {
+		using type = std::tuple<Ts...>;
+	};
+
+	template<typename T, template<typename> typename Predicate>
+	using transform_element_t = typename Predicate<T>::type;
+
+	template<typename T, template<typename> typename Predicate>
+	struct TransformationHelper;
+
+	template<typename... Args, template<typename> typename Predicate>
+	struct TransformationHelper<std::tuple<Args...>, Predicate> {
+		using type = std::tuple<transform_element_t<Args, Predicate>...>;
+	};
+
+
+
+
+
+	template<
+		//template<typename> typename Filter, // peut etre le mettre par defaut
+		template<typename> typename Schema,
+		template<typename> typename Model,
+		typename... Entries
+	>
+	struct new_ConfigurationSystem {
+	protected:
+		using base_tuple = std::tuple<Entries...>;
+
+		using filtered_tuple = typename FilterHelper<base_tuple, enabled_disabled_filter>::type;
+		using transformed_tuple = typename TransformationHelper<filtered_tuple, transform_configuration_entry_in_tuple>::type;
+
+		/*static constexpr bool schema_validation =
+			[]<typename... Ts>(std::tuple<Ts...>) {
+				return (Schema<Ts>::valid && ...);
+			}(std::declval<transformed_tuple>());*/
+
+		static constexpr bool schema_validation =
+			[]<typename... Ts>(std::tuple<Ts...>) {
+				return (Schema<Ts>::valid && ...);
+			}(transformed_tuple{});
+
+		static_assert(schema_validation, "at least one element doesn't satisfies the schema");
+
+		using final_type =
+			decltype([]<typename... Ts>(std::tuple<Ts...>) {
+				return std::tuple<Model<Ts>...>{};
+			}(std::declval<transformed_tuple>()));
+
+	public:
+		using type = final_type;
+
+	};
+
+	//template<
+	//	template<typename> typename Schema,
+	//	template<typename> typename Model,
+	//	typename... Entries
+	//> using new_ConfigurationSystem_t
+
+
+
+	// recoit pleins de config, on crée un tuple contenant toutes les config en filtrant (ENABLED, DISABLED)
+	// ensuite, pour chaques config du tuple, on crée un tuple avec les arguments 
+	// pour chaques entry que l'on transforme, on l'es met dans le schema et model et on les push dans un nouveau tuple.
+
+	// on recoit UN SEUL ENTRY sous forme de tuple (ses arguments)
+
+	template<typename entry_tuple>
+	struct ConfigurationSchema {
+		static constexpr bool valid =
+			requires {
+				requires std::tuple_size_v<entry_tuple> == 2;
+				//requires std::same_as<std::tuple_element_t<0, entry_tuple>, MockModuleA>;
+			};
+
+		// JE SAIS PAS SI JE MET LE STATIC ASSERT ICI, SI CA FAIT EN SORTE QUE LA SYNTAXE DEVIENT ROUGE QUAND
+		// JE MET QUELQUE CHOSE DE NON AUTORISÉ, à tester
+	};
+
+
+	template<typename entry_tuple>
+	struct ConfigurationModel final {
+		using rule_t = std::tuple_element_t<0, entry_tuple>;
+		using behavior_t = std::tuple_element_t<1, entry_tuple>;
+	};
+
+
+	template<typename... Entries>
+	using LambdaSystemConfiguration = new_ConfigurationSystem<
+		ConfigurationSchema,
+		ConfigurationModel,
+		Entries...
+	>;
+
+
+
+
+
+
+
+
+
+
+
+
+/********************************************************************************/
+
+
 
 	template<fixed_string... Principles>
 	struct KeywordMatchingPolicy {
@@ -1727,6 +1886,27 @@ export void main_instruction_for_passes() {
 		std::cout << "\n";
 		sys.print_ruleset();
 		std::cout << "\n\n";
+
+
+
+
+
+
+
+		using res_t = LambdaSystemConfiguration<
+			GenericConfigurationEntry<true, MockModuleA, PositionTracker>,
+			GenericConfigurationEntry<true, MockModuleB, PositionTracker>
+		>::type;
+
+
+		std::apply([](auto... args) {
+			((
+				std::cout << typeid(std::remove_cvref_t<decltype(args)>).name() << "\n",
+
+				std::cout << "  \trule_t: " << typeid(typename decltype(args)::rule_t).name() << "\n",
+				std::cout << "  \tbehavior_t: " << typeid(typename decltype(args)::behavior_t).name() << "\n\n"
+			), ...);
+		}, res_t{});
 	}
 
 }
