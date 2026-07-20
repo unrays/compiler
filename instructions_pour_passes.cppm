@@ -691,13 +691,13 @@ namespace PASS2_CONTENT_LEXING {
 	};
 
 	template<typename Target, typename Predicate>
-	using ENABLED = ConfigurationRule<true, Target, Predicate>;
+	using ENABLED_old = ConfigurationRule<true, Target, Predicate>;
 
 	template<typename Target, typename Predicate>
-	using DISABLED = ConfigurationRule<false, Target, Predicate>;
+	using DISABLED_old = ConfigurationRule<false, Target, Predicate>;
 
 	template<auto Condition, typename Target, typename Predicate>
-	using CONDITIONAL = ConfigurationRule<Condition, Target, Predicate>;
+	using CONDITIONAL_old = ConfigurationRule<Condition, Target, Predicate>;
 
 
 /********************************************************************************/
@@ -752,7 +752,7 @@ namespace PASS2_CONTENT_LEXING {
 
 
 
-
+#if 0
 	template<typename Container>
 	struct make_tuple_from_container;
 
@@ -866,6 +866,8 @@ namespace PASS2_CONTENT_LEXING {
 
 	};
 
+#endif
+
 
 
 
@@ -883,6 +885,29 @@ namespace PASS2_CONTENT_LEXING {
 /********************************************************************************/
 
 // NOUVEAU SYSTÈME DE CONFIG
+
+
+
+
+	template<typename... Ts>
+	using ENABLED = GenericConfigurationEntry<true, Ts...>;
+
+	template<typename... Ts>
+	using DISABLED = GenericConfigurationEntry<false, Ts...>;
+
+	template<auto Condition, typename... Ts>
+	using CONDITIONAL = GenericConfigurationEntry<Condition, Ts...>;
+
+
+	template <auto Value>
+	struct nttp_to_type {
+		static constexpr auto value = Value;
+
+		using value_type = decltype(Value);
+
+		constexpr operator value_type() const noexcept { return value; }
+		constexpr value_type operator()() const noexcept { return value; }
+	};
 
 
 	template<typename... Ts>
@@ -974,7 +999,10 @@ namespace PASS2_CONTENT_LEXING {
 				return (Schema<Ts>::valid && ...);
 			}(transformed_tuple{});
 
-		static_assert(schema_validation, "at least one element doesn't satisfies the schema");
+		static_assert(
+			schema_validation,
+			"[Config Error] This transformed entry type violates the strict structural requirements defined by your Schema."
+		);
 
 		using final_type =
 			decltype([]<typename... Ts>(std::tuple<Ts...>) {
@@ -999,6 +1027,8 @@ namespace PASS2_CONTENT_LEXING {
 	// pour chaques entry que l'on transforme, on l'es met dans le schema et model et on les push dans un nouveau tuple.
 
 	// on recoit UN SEUL ENTRY sous forme de tuple (ses arguments)
+
+	// utiliser VALUE_T pour les values (NTTP) dans les tuples
 
 	template<typename entry_tuple>
 	struct ConfigurationSchema {
@@ -1026,6 +1056,9 @@ namespace PASS2_CONTENT_LEXING {
 		ConfigurationModel,
 		Entries...
 	>;
+
+	// ensuite, il ne manque plus qu'a faire plusieurs systemConfig par système genre
+	// par sections
 
 
 
@@ -1364,12 +1397,18 @@ namespace PASS2_CONTENT_LEXING {
 		}
 	}
 
-
+	// deprecated
 	template<auto Source, auto Target>
 	struct EnumMapperEntry {
 		static constexpr auto source = Source;
 		static constexpr auto target = Target;
 	};
+
+
+
+
+
+
 
 	template <typename T, typename... AllowedTypes>
 	inline constexpr bool is_any_of_v = (std::is_same_v<T, AllowedTypes> || ...);
@@ -1377,24 +1416,85 @@ namespace PASS2_CONTENT_LEXING {
 
 
 
-	template<typename... Rules> // must be EnumMapperEntry
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	template<typename entry_tuple>
+	struct EnumMapperConfigurationSchema {
+		using first_t = std::decay_t<std::tuple_element_t<0, entry_tuple>>;
+		using second_t = std::decay_t<std::tuple_element_t<1, entry_tuple>>;
+
+		static constexpr bool valid =
+			requires {
+				requires std::tuple_size_v<entry_tuple> == 2;
+
+				//requires std::same_as<first_t, nttp_to_type>; // faut faire un trait
+				//requires std::same_as<second_t, nttp_to_type>;
+
+				requires !std::same_as<decltype(first_t::value), decltype(second_t::value)>;
+				//requires first_t::value != second_t::value; // pas d'operateur == entre les deux...
+		};
+	};
+
+	template<typename entry_tuple>
+	struct EnumMapperConfigurationModel final {
+		static constexpr auto source = std::tuple_element_t<0, entry_tuple>::value;
+		static constexpr auto target = std::tuple_element_t<1, entry_tuple>::value;
+	};
+
+	template<typename... Entries>
+	using EnumMapperConfiguration = new_ConfigurationSystem<
+		EnumMapperConfigurationSchema,
+		EnumMapperConfigurationModel,
+		Entries...
+	>;
+
+	template <typename T>
+	constexpr bool is_enum_mapper_v = false;
+
+	template <typename... Entries>
+	constexpr bool is_enum_mapper_v<EnumMapperConfiguration<Entries...>> = true;
+
+	template <typename T>
+	concept is_enum_mapper_configuration = is_enum_mapper_v<T>;
+
+
+
+
+
+	template<is_enum_mapper_configuration Configuration>
 	struct EnumMapper {
 	protected:
-		using rule_model_t = std::tuple_element_t<0, std::tuple<Rules...>>;
+		using configuration_tuple_t = typename Configuration::type;
+		using rule_model_t = std::tuple_element_t<0, configuration_tuple_t>;
 
 		using first_enum_t = std::decay_t<decltype(rule_model_t::source)>;
 		using second_enum_t = std::decay_t<decltype(rule_model_t::target)>;
 
 	protected:
-		static_assert(
-			((
-				is_any_of_v<std::decay_t<decltype(Rules::source)>, first_enum_t, second_enum_t> &&
-				is_any_of_v<std::decay_t<decltype(Rules::target)>, first_enum_t, second_enum_t>
-			) && ...),
-			"EnumMapper error: Too many distinct state types detected. A maximum of two are allowed."
-		);
+		static constexpr bool is_valid = []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+			return ((
+				is_any_of_v<std::decay_t<decltype(Ts::source)>, first_enum_t, second_enum_t> &&
+				is_any_of_v<std::decay_t<decltype(Ts::target)>, first_enum_t, second_enum_t>
+			) && ...);
+		}(std::type_identity<configuration_tuple_t>{});
+
+		static_assert(is_valid, "EnumMapper error: Too many distinct state types detected. A maximum of two are allowed.");
+
 
 	public:
+#if 0
 		template<typename Tp>
 			requires(is_any_of_v<std::decay_t<Tp>, first_enum_t, second_enum_t>)
 		[[nodiscard]] static constexpr decltype(auto) map(Tp&& source)
@@ -1405,6 +1505,7 @@ namespace PASS2_CONTENT_LEXING {
 				// lui il utilise les deux fonctions d'en bas pour trouver DES DEUX COTÉS
 				// JE SAIS PAS SI JE DOIS RESTER AVEC UNIQUEMENT LES ENTRIES OU FAIRE GENRE SI UN, ON REND L'AUTRE VALIDE
 		}
+#endif
 
 		// find_target (recherche)
 
@@ -1821,10 +1922,10 @@ export void main_instruction_for_passes() {
 
 		using System = ModularSystem<
 			SystemConfiguration<
-				ENABLED		<LexingAutomaton, TokenKwrdClassifier>,
-				DISABLED	<CharReader, PositionTracker>,
+				ENABLED_old		<LexingAutomaton, TokenKwrdClassifier>,
+				DISABLED_old	<CharReader, PositionTracker>,
 
-				CONDITIONAL <(sizeof(content) != 0), ContextComposer, CompilationUnit>
+				CONDITIONAL_old <(sizeof(content) != 0), ContextComposer, CompilationUnit>
 			>
 		>;
 
@@ -1874,18 +1975,18 @@ export void main_instruction_for_passes() {
 
 
 
-		using MySystem = ConfigurableSystem<
-			SystemConfiguration<
-				GenericConfigurationEntry	<true, CharReader, PositionTracker>,
-				GenericConfigurationEntry	<true, MockModuleC, MockModuleD>
-			>
-		>;
+		//using MySystem = ConfigurableSystem<
+		//	SystemConfiguration<
+		//		GenericConfigurationEntry	<true, CharReader, PositionTracker>,
+		//		GenericConfigurationEntry	<true, MockModuleC, MockModuleD>
+		//	>
+		//>;
 
-		MySystem sys;
+		//MySystem sys;
 
-		std::cout << "\n";
-		sys.print_ruleset();
-		std::cout << "\n\n";
+		//std::cout << "\n";
+		//sys.print_ruleset();
+		//std::cout << "\n\n";
 
 
 
@@ -1907,6 +2008,27 @@ export void main_instruction_for_passes() {
 				std::cout << "  \tbehavior_t: " << typeid(typename decltype(args)::behavior_t).name() << "\n\n"
 			), ...);
 		}, res_t{});
+
+
+
+
+
+
+
+
+		//case LexState::Operator: return TokenKind::Operator;
+
+
+		using MyEnumMapper = EnumMapper<
+			EnumMapperConfiguration<
+				ENABLED		<nttp_to_type<LexState::Identifier>, nttp_to_type<TokenKind::Identifier>>,
+				ENABLED		<nttp_to_type<LexState::Operator>,   nttp_to_type<TokenKind::Operator>>
+			>
+		>;
+
+		MyEnumMapper mapper;
+
+
 	}
 
 }
