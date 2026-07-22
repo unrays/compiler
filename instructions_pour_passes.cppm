@@ -864,6 +864,11 @@ namespace PASS2_CONTENT_LEXING {
 				throw std::out_of_range("Matrix out of bounds.");
 			#endif
 
+			if (i == -1 || i < 0) [[unlikely]] { // pas propre mais fonctionnel
+				static int invalid_state_fallback = -1;
+				return invalid_state_fallback;
+			}
+
 			return m_[i * C + j];
 		}
 
@@ -872,6 +877,11 @@ namespace PASS2_CONTENT_LEXING {
 			if (i >= R || j >= C) [[unlikely]]
 				throw std::out_of_range("Matrix out of bounds.");
 			#endif
+
+			if (i == -1 || i < 0) [[unlikely]] { // pas propre mais fonctionnel
+				static int invalid_state_fallback = -1;
+				return invalid_state_fallback;
+			}
 
 			return m_[i * C + j];
 		}
@@ -1314,9 +1324,8 @@ namespace PASS2_CONTENT_LEXING {
 
 	template<char... c>
 	struct charset {
-
+		// principalement pour le Lexer mais peut aussi servir a quelque pars d'autre
 	};
-
 
 
 
@@ -1375,6 +1384,52 @@ namespace PASS2_CONTENT_LEXING {
 
 
 
+/***********************************************************************************/
+
+
+
+	using charset_alpha = charset<
+		'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+		'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+	>;
+
+	using charset_digits = charset<
+		'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
+	>;
+
+	using charset_alphanumeric = charset<
+		'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+		'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+		'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
+	>;
+
+
+	using charset_isdelimiter_pure = charset<
+		'.', '@'
+	>;
+
+
+	using charset_isoperator_pure = charset<
+		'+', '-', '*', '/', '%', '=', '!', '&', '|', '^', '~', '?'
+	>;
+
+	using charset_iswhitespace = charset<
+		' ', '\t', '\r'
+	>;
+
+
+	using charset_ispreprocessor = charset<
+		'#'
+	>;
+
+
+	using charset_isoperator = charset<
+		'+', '-', '*', '/', '%', '=', '<', '>', '!', '&', '|', '^', '~', '?'
+	>;
 
 
 
@@ -1404,7 +1459,7 @@ namespace PASS2_CONTENT_LEXING {
 
 /********************************************************************************/
 
-
+	// pas certain que ca soit encore utilisé
 	template<typename T>
 	concept SystemConfigurationConcept = requires {
 		typename T::as_tuple;
@@ -1448,6 +1503,15 @@ namespace PASS2_CONTENT_LEXING {
 			return ((sv == Principles) || ...);
 		}
 	};
+
+	template<typename T>
+	struct is_keyword_matching_policy_specialization : std::false_type {};
+
+	template<fixed_string... Principles>
+	struct is_keyword_matching_policy_specialization<KeywordMatchingPolicy<Principles...>> : std::true_type {};
+
+	template<typename T>
+	concept is_keyword_matching_policy = is_keyword_matching_policy_specialization<T>::value;
 
 
 /********************************************************************************/
@@ -1503,6 +1567,7 @@ namespace PASS2_CONTENT_LEXING {
 
 /********************************************************************************/
 
+
 	enum struct TokenKind {
 		Identifier = 0,
 
@@ -1540,9 +1605,44 @@ namespace PASS2_CONTENT_LEXING {
 	};
 
 
+	[[nodiscard]] constexpr std::string_view TokenKind_to_string(TokenKind kind) noexcept {
+		switch (kind) {
+			case TokenKind::Identifier:       return "Identifier";
+			case TokenKind::KeywordOpaque:    return "KeywordOpaque";
+			case TokenKind::KeywordType:      return "KeywordType";
+			case TokenKind::KeywordQualifier: return "KeywordQualifier";
+			case TokenKind::KeywordSpecifier: return "KeywordSpecifier";
+			case TokenKind::KeywordModifier:  return "KeywordModifier";
+			case TokenKind::KeywordAlignment: return "KeywordAlignment";
+			case TokenKind::KeywordControl:   return "KeywordControl";
+			case TokenKind::KeywordAccess:    return "KeywordAccess";
+			case TokenKind::DelimiterOpaque:  return "DelimiterOpaque";
+			case TokenKind::DelimiterColon:   return "DelimiterColon";
+			case TokenKind::DelimiterSemicolon: return "DelimiterSemicolon";
+			case TokenKind::DelimiterComma:   return "DelimiterComma";
+			case TokenKind::DelimiterRParen:  return "DelimiterRParen";
+			case TokenKind::DelimiterLParen:  return "DelimiterLParen";
+			case TokenKind::DelimiterLCurly:  return "DelimiterLCurly";
+			case TokenKind::DelimiterRCurly:  return "DelimiterRCurly";
+			case TokenKind::DelimiterRSquare: return "DelimiterRSquare";
+			case TokenKind::DelimiterLSquare: return "DelimiterLSquare";
+			case TokenKind::DelimiterRAngle:  return "DelimiterRAngle";
+			case TokenKind::DelimiterLAngle:  return "DelimiterLAngle";
+			case TokenKind::Preprocessor:     return "Preprocessor";
+			case TokenKind::Operator:         return "Operator";
+			case TokenKind::Number:           return "Number";
+			case TokenKind::Whitespace:       return "Whitespace";
+			case TokenKind::Newline:          return "Newline";
+			case TokenKind::Invalid:          return "Invalid";
+			case TokenKind::Unknown:          return "Unknown";
+		}
+		return "Unknown_TokenKind_Value";
+	}
+
+
 /********************************************************************************/
 
-
+#if 0
 	template<typename T>
 	concept IsaKeywordMatchingPolicy =
 		requires(std::string_view sv) {
@@ -1568,12 +1668,93 @@ namespace PASS2_CONTENT_LEXING {
 
 /********************************************************************************/
 
+
 	export template<typename Configuration> // POUR MOCK TEMPORAIRE
 		struct TokenKeywordClassifier final {};
+#endif
 
 
+
+
+
+
+
+
+
+
+
+/***********************************************************************************/
+/***********************************************************************************/
+/***********************************************************************************/
+/***********************************************************************************/
+
+
+
+
+	template<typename entry_tuple>
+	struct TokenKeywordCategorizerConfigurationSchema {
+		using first_t = std::decay_t<std::tuple_element_t<0, entry_tuple>>;
+		using second_t = std::decay_t<std::tuple_element_t<1, entry_tuple>>;
+
+		static constexpr bool valid =
+			requires {
+				requires std::tuple_size_v<entry_tuple> == 2;
+
+				requires is_keyword_matching_policy<first_t>;
+				requires std::is_same_v<std::decay_t<decltype(second_t::value)>, TokenKind>;
+			};
+	};
+
+	template<typename entry_tuple>
+	struct TokenKeywordCategorizerConfigurationModel final {
+		using predicate = std::tuple_element_t<0, entry_tuple>;
+		static constexpr TokenKind corresponding = std::tuple_element_t<1, entry_tuple>::value;
+	};
+
+	template<typename... Entries>
+	using TokenKeywordCategorizerConfiguration = new_ConfigurationSystem<
+		TokenKeywordCategorizerConfigurationSchema,
+		TokenKeywordCategorizerConfigurationModel,
+		Entries...
+	>;
+
+	template <typename T>
+	constexpr bool is_token_keyword_categorizer_config_v = false;
+
+	template <typename... Entries>
+	constexpr bool is_token_keyword_categorizer_config_v<TokenKeywordCategorizerConfiguration<Entries...>> = true;
+
+	template <typename T>
+	concept is_token_keyword_categorizer_configuration = is_token_keyword_categorizer_config_v<T>;
+
+	// ca se répète souvent, y'aurais peut-être moyen de factoriser tout cela de facon a rendre la chose plus lisible
+
+
+
+
+	export template<is_token_keyword_categorizer_configuration Configuration>
+	struct TokenKeywordCategorizer final {
+	protected:
+		using configuration_tuple_t = typename Configuration::type;
+
+		static constexpr bool is_nothrow_config = []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+			return (noexcept(Ts::predicate::matches(std::string_view{})) && ...);
+		}(std::type_identity<configuration_tuple_t>{});
+
+	public:
+		[[nodiscard]] static constexpr TokenKind transform(std::string_view sv) noexcept(is_nothrow_config) {
+			return [&]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+				TokenKind result = TokenKind::Unknown;
+				(((Ts::predicate::matches(sv)) && (result = Ts::corresponding, true)), ...);
+
+				return result;
+			}(std::type_identity<configuration_tuple_t>{});
+		}
+	};
+
+#if 0
 	export template<is_token_classifier_context... Contexts>
-	struct TokenKeywordClassifier2 final { // re-categorizer?
+	struct TokenKeywordCategorizer final { // re-categorizer?
 		private:
 			template<typename Current, typename... Remaining>
 			[[nodiscard]] static constexpr TokenKind evaluate_recursively(std::string_view sv)
@@ -1595,9 +1776,13 @@ namespace PASS2_CONTENT_LEXING {
 				return evaluate_recursively<Contexts...>(sv);
 			}
 	};
+#endif // petite backup
 
 
-/********************************************************************************/
+/***********************************************************************************/
+/***********************************************************************************/
+/***********************************************************************************/
+/***********************************************************************************/
 
 
 	struct SourceLocation {
@@ -1729,6 +1914,7 @@ namespace PASS2_CONTENT_LEXING {
 
 	// DEVRAIS DEVENIR GENRE UNE CONFIGURATION PAR POLICY OU RULES, QUELQUE CHOSE DU GENRE.
 
+#if 0
 	constexpr TokenKind state_to_token(LexState _) {
 		switch (_) {
 		case LexState::Identifier: return TokenKind::Identifier;
@@ -1761,13 +1947,16 @@ namespace PASS2_CONTENT_LEXING {
 		default: return TokenKind::Invalid;
 		}
 	}
+#endif
 
+#if 0
 	// deprecated
 	template<auto Source, auto Target>
 	struct EnumMapperEntry {
 		static constexpr auto source = Source;
 		static constexpr auto target = Target;
 	};
+#endif
 
 
 
@@ -1836,7 +2025,7 @@ namespace PASS2_CONTENT_LEXING {
 
 
 
-
+	
 
 	template<is_enum_mapper_configuration Configuration>
 	struct EnumMapper {
@@ -1857,47 +2046,47 @@ namespace PASS2_CONTENT_LEXING {
 
 		static_assert(is_valid, "EnumMapper error: Too many distinct state types detected. A maximum of two are allowed.");
 
+	protected:
+		template<typename Tp>
+		static constexpr bool is_nothrow_find_target = []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+			return (noexcept(std::declval<Tp>() == Ts::source) && ...);
+		}(std::type_identity<configuration_tuple_t>{});
+
+		template<typename Tp>
+		static constexpr bool is_nothrow_find_source = []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+			return (noexcept(std::declval<Tp>() == Ts::target) && ...);
+		}(std::type_identity<configuration_tuple_t>{});
 
 	public:
-#if 0
 		template<typename Tp>
-			requires(is_any_of_v<std::decay_t<Tp>, first_enum_t, second_enum_t>)
-		[[nodiscard]] static constexpr decltype(auto) map(Tp&& source)
-			noexcept((noexcept(source == Rules::source) && ...))
+		[[nodiscard]] static constexpr auto find_target(Tp&& source) 
+			noexcept(is_nothrow_find_target<Tp>)
 		{
-			//return //(noexcept(source == Rules::source) && ...) PEUT ETRE DEUX FONCTIONS
+			return [&]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+				using TargetType = std::common_type_t<decltype(Ts::target)...>;
+				std::optional<TargetType> result;
 
-				// lui il utilise les deux fonctions d'en bas pour trouver DES DEUX COTÉS
-				// JE SAIS PAS SI JE DOIS RESTER AVEC UNIQUEMENT LES ENTRIES OU FAIRE GENRE SI UN, ON REND L'AUTRE VALIDE
-		}
-#endif
+				(((source == Ts::source) && (result = Ts::target, true)), ...);
+				if (!result) throw std::runtime_error("Target not found");
 
-	/*	template<typename Tp>
-		[[nodiscard]] static constexpr decltype(auto) map(Tp&& source) {
-			return 
-		}*/
-
-		template<typename Tp> // il manque les noexcept
-		[[nodiscard]] static constexpr decltype(auto) find_target(Tp&& source) {
-			return []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
-				if constexpr (source == Ts::source) {
-					return Ts::target;
-				}
+				return result.value();
 			}(std::type_identity<configuration_tuple_t>{});
 		}
 
 		template<typename Tp>
-		[[nodiscard]] static constexpr decltype(auto) find_source(Tp&& target) {
-			return[]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
-				if constexpr (target == Ts::target) {
-					return Ts::source;
-				}
+		[[nodiscard]] static constexpr auto find_source(Tp&& target)
+			noexcept(is_nothrow_find_source<Tp>)
+		{
+			return[&]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+				using TargetType = std::common_type_t<decltype(Ts::source)...>;
+				std::optional<TargetType> result;
+
+				(((target == Ts::target) && (result = Ts::source, true)), ...);
+				if (!result) throw std::runtime_error("Source not found");
+
+				return result.value();
 			}(std::type_identity<configuration_tuple_t>{});
 		}
-
-		// find_target (recherche)
-
-		// find_source (rechreche inversée)
 	};
 
 
@@ -1920,92 +2109,64 @@ namespace PASS2_CONTENT_LEXING {
 
 		template <typename Reader, typename Tracker>
 		[[nodiscard]] std::vector<Token> tokenize(std::string_view source) {
-			Reader reader{ source.data(), source.data() + source.size() }; // le call Stream?
+
+			const char* begin = source.data();
+			const char* end = source.data() + source.size();
+
+			const char* current = begin;
+			const char* current_seg_start = current;
+
+
+			Reader reader{ begin, end }; // le call Stream?
 			Tracker tracker{};
 
 
-			std::vector<Token> tokens;
-			tokens.reserve(1 << 10); // 1024
-
-
-			//LexState current_state = LexState::Start;
-
-			const char* current_ptr = source.data();
-			const char* current_seg_start = current_ptr;
-
-			SourceLocation current_location;
-
-
-			/****************/
-
-
-
+			std::vector<Token> tokens; // utiliser un allocator
+			tokens.reserve(575122); // 1024 1 << 1024 
 
 
 			reader.consume([&](const char* current) {
 
 				char c = *current;
 
-				std::cout << "current lexing char: " << c << "\n";
+				//std::cout << "current lexing char: " << c << "\n";
 
 				SourceLocation cur_location = tracker.update(c);
 				bool success = automaton.step(c);
 
-				std::cout << "\tcurrent state: " << static_cast<int>(automaton.get_current_state()) << "\n";
-				std::cout << "\tprevious state: " << static_cast<int>(automaton.get_previous_state()) << "\n";
+				//std::cout << "\tcurrent state: " << static_cast<int>(automaton.get_current_state()) << "\n";
+				//std::cout << "\tprevious state: " << static_cast<int>(automaton.get_previous_state()) << "\n";
 
+				if (!success) [[unlikely]] {
+					auto final_state = automaton.get_previous_state();
 
+					if (final_state != LexState::Whitespace && // couplage obligatoire même si c'est moyen moyen
+						final_state != LexState::Newline) {
 
-				if (!success) [[unlikely]] { // le == LexState::Invalid
-					tokens.emplace_back(
-						state_to_token(automaton.get_current_state()), // mettre mapper
-						std::string_view(current_seg_start, static_cast<std::ptrdiff_t>(current - current_seg_start)), // en attendant le interner
-						cur_location // par copie
-					);
+						tokens.emplace_back(
+							mapper.find_target(final_state),
+							std::string_view(current_seg_start, static_cast<std::ptrdiff_t>(current - current_seg_start)),
+							cur_location
+						);
 
+						//std::cout << "[" << std::string_view(current_seg_start, static_cast<std::ptrdiff_t>(current - current_seg_start)) << "]\n";
+					}
+
+					automaton.reset();
+
+					automaton.step(c);
 					current_seg_start = current;
-					automaton.reset(); // remet a start
+
+					// FAUT GERER LE CASE DU MOT FINAL MAIS J'AI LA FLEME DONC TODO!!!!!!!!!!
 				}
-
-				//LexState next_state = automaton.step(current_state, c);
-
-
-				//if (next_state == LexState::Invalid) [[unlikely]] {
-				//	tokens.emplace_back(
-				//		state_to_token(current_state),
-				//		std::string_view(current_seg_start, static_cast<std::ptrdiff_t>(current - current_seg_start)), // en attendant le interner
-				//		current_location // par copie
-				//	);
-
-				//	current_seg_start = current; // pas 100% certain, à tester...
-				//	current_state = LexState::Start;
-				//}
-
 			});
 
 
+			for (auto& t : tokens) { // pas le plus optimal mais reste le plus générique
+				auto result = recategoriser.transform(t.lexeme);
+				if (result == TokenKind::Invalid) [[unlikely]] t.kind = result;
+			} 
 
-			//while (*current_ptr != '\0') { // peut-être une fonction genre is_end
-
-			//	current_location = tracker.update(*current_ptr);
-			//	LexingStateType next_state = automaton.step(current_state, *current_ptr); // peut-être assignation au lieu d'instantiation
-
-
-			//	if (next_state == LexingStateType::STATE_INVALID) [[unlikely]] {
-			//		tokens.emplace_back(
-			//			state_to_token(current_state),
-			//			std::string_view(current_seg_start, static_cast<std::ptrdiff_t>(current_ptr - current_seg_start)), // en attendant le interner
-			//			current_location // par copie
-			//		);
-
-			//		current_seg_start = current_ptr; // pas 100% certain, à tester...
-			//		current_state = LexingStateType::STATE_START;
-			//	}
-			//	else {
-			//		current_ptr = reader.advance();
-			//	}
-
-			//}
 
 
 			return tokens; // pas copie... à voir pour allocation.
@@ -2041,6 +2202,8 @@ namespace PASS2_CONTENT_LEXING {
 
 		[[no_unique_address]] LexingAutomaton automaton{}; // DEVRAIT PROBABLEMENT SE CONSOMMER COMME LES AUTRES, STATEFUL
 		[[no_unique_address]] Recategoriser recategoriser{}; // module séparé peut-être
+
+		[[no_unique_address]] Mapper mapper{};
 	};
 
 
@@ -2189,6 +2352,66 @@ struct FlattenedAST {
 };
 
 
+
+
+
+
+
+
+
+
+
+
+[[nodiscard]] std::string generate_lexer_stress_test() {
+	std::ostringstream oss;
+
+	// 1. Un en-tête complexe pour tester les préprocesseurs, délimiteurs et blancs
+	oss << "#include <iostream>\n";
+	oss << "#include <vector>\n\n";
+	oss << "/* Test de commentaires bloc et opaque */\n";
+	oss << "namespace test_lexer::core {\n";
+	oss << "    public constexpr inline auto process_data() noexcept -> int {\n";
+	oss << "        int accumulator = 12345;\n";
+	oss << "        bool is_valid = true;\n";
+	oss << "        if (accumulator >= 500 && is_valid) {\n";
+	oss << "            accumulator = accumulator * 2 + (42 - 7);\n";
+	oss << "        }\n";
+	oss << "        return accumulator;\n";
+	oss << "    }\n";
+	oss << "}\n\n";
+
+	// 2. Génération d'une boucle massive pour saturer le DFA et le Recategoriser
+	// On génère 5000 blocs répétitifs mais variés
+	for (int i = 0; i < 5000; ++i) {
+		oss << "struct TokenClassifierContext" << i << " {\n";
+		oss << "    static constexpr TokenKind value = TokenKind::KeywordAccess;\n";
+		oss << "    using policy = AccessKeywordMatchingPolicy;\n";
+		oss << "    const volatile int local_flag = " << i << ";\n";
+		oss << "    // Alternance de mots-clés de contrôle et modificateurs\n";
+		oss << "    void check(bool condition) {\n";
+		oss << "        if (condition) { return; } else { do_nothing(); }\n";
+		oss << "        alignas(8) char buffer[256];\n";
+		oss << "        int* ptr = &local_flag;\n";
+		oss << "        if (*ptr == " << i << " && true || false) {\n";
+		oss << "            auto list = { 1, 2, 3, 4, 5 };\n";
+		oss << "        }\n";
+		oss << "    }\n";
+		oss << "};\n\n";
+	}
+
+	// 3. Un final brut avec des enchaînements rapides d'opérateurs et d'invalides
+	oss << "hello world, j'aime le c++\n retour a la ligne\n";
+	oss << "&&& *** ::: ;;; ,,, <<< >>> {{}} [[]] (()) \n";
+	oss << "0 1 23 456 7890 1234567890\n";
+
+	return oss.str();
+}
+
+
+
+
+
+
 export void main_instruction_for_passes() {
 
 	using ContextComposer = ContextComposer<ParserContextCompositionPolicy>;
@@ -2228,7 +2451,7 @@ export void main_instruction_for_passes() {
 	{
 		using namespace PASS1_STRING_SPLITTING;
 
-		std::string content = "hello world, j'aime le c++\n retour a la ligne";
+		std::string content = "hello world, jaime le c++\n retour a la ligne";
 
 		StringSplitter<StringStreamSplitStrategy> splitter;
 
@@ -2300,10 +2523,7 @@ export void main_instruction_for_passes() {
 
 
 
-		using TokenKwrdClassifier = TokenKeywordClassifier2<
-			TokenClassifierContext<AccessKeywordMatchingPolicy, TokenKind::KeywordAccess>,
-			TokenClassifierContext<AlignmentKeywordMatchingPolicy, TokenKind::KeywordAlignment>
-		>;
+
 
 
 
@@ -2323,7 +2543,7 @@ export void main_instruction_for_passes() {
 
 		using System = ModularSystem<
 			SystemConfiguration<
-				ENABLED_old		<MockModuleA, TokenKwrdClassifier>,
+				ENABLED_old		<MockModuleA, MockModuleB>,
 				DISABLED_old	<CharReader, PositionTracker>
 
 				//CONDITIONAL_old <(sizeof(content) != 0), ContextComposer, CompilationUnit>
@@ -2421,43 +2641,157 @@ export void main_instruction_for_passes() {
 
 
 
-		using LexingAutomaton = StaticDFA<
+		//using LexingAutomaton = StaticDFA<
+		//	StaticDfaTransitions<
+		//		ENABLED <nttp_to_type<LexState::Start>, nttp_to_type<'\n'>, nttp_to_type<LexState::Newline>>
+		//	>
+		//>;
+
+
+
+
+
+#if !defined(__INTELLISENSE__)
+		using LexingAutomaton__final = StaticDFA<
+			generate_expanded_dfa_config_t<
+				ENABLED<nttp_to_type<LexState::Start>, charset_alpha, nttp_to_type<LexState::Identifier>>,
+				ENABLED<nttp_to_type<LexState::Start>, charset_digits, nttp_to_type<LexState::Number>>,
+
+				ENABLED<nttp_to_type<LexState::Start>, charset<':'>, nttp_to_type<LexState::DelimiterColon>>,
+				ENABLED<nttp_to_type<LexState::Start>, charset<';'>, nttp_to_type<LexState::DelimiterSemi>>,
+				ENABLED<nttp_to_type<LexState::Start>, charset<','>, nttp_to_type<LexState::DelimiterComma>>,
+
+				ENABLED<nttp_to_type<LexState::Start>, charset<'('>, nttp_to_type<LexState::DelimiterLParen>>,
+				ENABLED<nttp_to_type<LexState::Start>, charset<')'>, nttp_to_type<LexState::DelimiterRParen>>,
+
+				ENABLED<nttp_to_type<LexState::Start>, charset<'{'>, nttp_to_type<LexState::DelimiterLCurly>>,
+				ENABLED<nttp_to_type<LexState::Start>, charset<'}'>, nttp_to_type<LexState::DelimiterRCurly>>,
+
+				ENABLED<nttp_to_type<LexState::Start>, charset<'['>, nttp_to_type<LexState::DelimiterLSquare>>,
+				ENABLED<nttp_to_type<LexState::Start>, charset<']'>, nttp_to_type<LexState::DelimiterRSquare>>,
+
+				ENABLED<nttp_to_type<LexState::Start>, charset<'<'>, nttp_to_type<LexState::DelimiterLAngle>>,
+				ENABLED<nttp_to_type<LexState::Start>, charset<'>'>, nttp_to_type<LexState::DelimiterRAngle>>,
+
+				ENABLED<nttp_to_type<LexState::Start>, charset<'\n'>, nttp_to_type<LexState::Newline>>,
+				ENABLED<nttp_to_type<LexState::Start>, charset_isdelimiter_pure, nttp_to_type<LexState::DelimiterOpaque>>,
+				ENABLED<nttp_to_type<LexState::Start>, charset_isoperator_pure, nttp_to_type<LexState::Operator>>,
+
+				ENABLED<nttp_to_type<LexState::Start>, charset_iswhitespace, nttp_to_type<LexState::Whitespace>>,
+				ENABLED<nttp_to_type<LexState::Start>, charset_ispreprocessor, nttp_to_type<LexState::Preprocessor>>,
+
+				ENABLED<nttp_to_type<LexState::Preprocessor>, charset_alpha, nttp_to_type<LexState::Preprocessor>>,
+				ENABLED<nttp_to_type<LexState::Identifier>, charset_alphanumeric, nttp_to_type<LexState::Identifier>>,
+
+				ENABLED<nttp_to_type<LexState::Number>, charset_digits, nttp_to_type<LexState::Number>>,
+				ENABLED<nttp_to_type<LexState::Operator>, charset_isoperator, nttp_to_type<LexState::Operator>>,
+
+				ENABLED<nttp_to_type<LexState::DelimiterColon>, charset<':'>, nttp_to_type<LexState::DelimiterColon>>,
+				ENABLED<nttp_to_type<LexState::Whitespace>, charset_iswhitespace, nttp_to_type<LexState::Whitespace>>
+			>
+		>;
+#else
+		using LexingAutomaton__final = StaticDFA<
 			StaticDfaTransitions<
 				ENABLED <nttp_to_type<LexState::Start>, nttp_to_type<'\n'>, nttp_to_type<LexState::Newline>>
 			>
 		>;
+#endif
 
 
 		//case LexState::Operator: return TokenKind::Operator;
 
 
-		using MyEnumMapper = EnumMapper<
+		//using MyEnumMapper = EnumMapper<
+		//	EnumMapperConfiguration<
+		//		ENABLED		<nttp_to_type<LexState::Identifier>, nttp_to_type<TokenKind::Identifier>>,
+		//		DISABLED	<nttp_to_type<LexState::Operator>,   nttp_to_type<TokenKind::Operator>, int>
+		//	>
+		//>;
+
+
+
+
+
+		using LexStateToTokenMapper__final = EnumMapper<
 			EnumMapperConfiguration<
-				ENABLED		<nttp_to_type<LexState::Identifier>, nttp_to_type<TokenKind::Identifier>>,
-				DISABLED	<nttp_to_type<LexState::Operator>,   nttp_to_type<TokenKind::Operator>, int>
+				ENABLED		<nttp_to_type<LexState::Identifier>,	   nttp_to_type<TokenKind::Identifier>>,
+				ENABLED		<nttp_to_type<LexState::DelimiterOpaque>,  nttp_to_type<TokenKind::DelimiterOpaque>>,
+				ENABLED		<nttp_to_type<LexState::Operator>,		   nttp_to_type<TokenKind::Operator>>,
+
+				ENABLED		<nttp_to_type<LexState::DelimiterColon>,   nttp_to_type<TokenKind::DelimiterColon>>,
+				ENABLED		<nttp_to_type<LexState::DelimiterSemi>,	   nttp_to_type<TokenKind::DelimiterSemicolon>>,
+				ENABLED		<nttp_to_type<LexState::DelimiterComma>,   nttp_to_type<TokenKind::DelimiterComma>>,
+
+				ENABLED		<nttp_to_type<LexState::DelimiterLParen>,  nttp_to_type<TokenKind::DelimiterLParen>> ,
+				ENABLED		<nttp_to_type<LexState::DelimiterRParen>,  nttp_to_type<TokenKind::DelimiterRParen>> ,
+
+				ENABLED		<nttp_to_type<LexState::DelimiterLCurly>,  nttp_to_type<TokenKind::DelimiterLCurly>>,
+				ENABLED		<nttp_to_type<LexState::DelimiterRCurly>,  nttp_to_type<TokenKind::DelimiterRCurly>>,
+
+				ENABLED		<nttp_to_type<LexState::DelimiterLSquare>, nttp_to_type<TokenKind::DelimiterLSquare>>,
+				ENABLED		<nttp_to_type<LexState::DelimiterRSquare>, nttp_to_type<TokenKind::DelimiterRSquare>>,
+
+				ENABLED		<nttp_to_type<LexState::DelimiterLAngle>,  nttp_to_type<TokenKind::DelimiterLAngle>>,
+				ENABLED		<nttp_to_type<LexState::DelimiterRAngle>,  nttp_to_type<TokenKind::DelimiterRAngle>>,
+
+				ENABLED		<nttp_to_type<LexState::Preprocessor>,	   nttp_to_type<TokenKind::Preprocessor>>,
+				ENABLED		<nttp_to_type<LexState::Newline>,		   nttp_to_type<TokenKind::Newline>>,
+				ENABLED		<nttp_to_type<LexState::Number>,		   nttp_to_type<TokenKind::Number>>,
+
+				ENABLED		<nttp_to_type<LexState::Invalid>,		   nttp_to_type<TokenKind::Unknown>>
 			>
 		>;
 
-		MyEnumMapper mapper;
+		using TokenKwrdCategorizer__final = TokenKeywordCategorizer<
+			TokenKeywordCategorizerConfiguration<
+				ENABLED		<AccessKeywordMatchingPolicy,    nttp_to_type<TokenKind::KeywordAccess>>,
+				ENABLED		<AlignmentKeywordMatchingPolicy, nttp_to_type<TokenKind::KeywordAlignment>>,
+				ENABLED		<ControlKeywordMatchingPolicy,   nttp_to_type<TokenKind::KeywordControl>>,
+				ENABLED		<ModifierKeywordMatchingPolicy,  nttp_to_type<TokenKind::KeywordModifier>>,
+				ENABLED		<QualifierKeywordMatchingPolicy, nttp_to_type<TokenKind::KeywordQualifier>>,
+				ENABLED		<SpecifierKeywordMatchingPolicy, nttp_to_type<TokenKind::KeywordSpecifier>>,
+				ENABLED		<TypeKeywordMatchingPolicy,      nttp_to_type<TokenKind::KeywordType>>
+			>
+		>;
+
+
+
+		LexStateToTokenMapper__final mapper;
+
+		std::cout << "mapping result: " << static_cast<int>(mapper.find_target(LexState::Identifier)) << "\n";
+		 
 
 
 
 
+		using LexicalAnalyzer = Lexer<LexingAutomaton__final, LexStateToTokenMapper__final, TokenKwrdCategorizer__final>;
 
-		using LexicalAnalyzer = Lexer<LexingAutomaton, MyEnumMapper, TokenKwrdClassifier>;
 
+		std::string content = generate_lexer_stress_test();
 
-		std::string content = "hello world, j'aime le c++\n retour a la ligne";
+		
+		LexicalAnalyzer lexer; 
 
-		LexicalAnalyzer lexer;
+		auto start = std::chrono::steady_clock::now();
 
 
 		std::vector<Token> tokens = lexer.tokenize<CharReader, PositionTracker>(content);
 
-		std::cout << "Tokens: \n";
-		for (auto const& t : tokens) {
-			std::cout << '[' << t.lexeme << ']';
-		}
+
+		auto endA = std::chrono::steady_clock::now();
+		auto durationA = std::chrono::duration_cast<std::chrono::nanoseconds>(endA - start);
+		std::cout << "[Tokenization] " << durationA.count() << " ns\n";
+
+
+		//std::cout << "Tokens: \n";
+		//for (auto const& t : tokens) {
+		//	std::cout << " -> lexeme: " << t.lexeme << "\n";
+		//	std::cout << "    kind: " << TokenKind_to_string(t.kind) << "\n";
+		//	std::cout << "    pos: (" << t.location.column << ", " << t.location.line << ")\n\n";
+
+		//	//std::cout << '[' << t.lexeme << ']';
+		//}
 
 
 
@@ -2467,13 +2801,35 @@ export void main_instruction_for_passes() {
 		>;
 
 
-		using FinalDfa = StaticDFA<
-			generate_expanded_dfa_config_t<
-				GenericConfigurationEntry<true, nttp_to_type<LexState::Start>, charset<'a', 'b', 'c'>, nttp_to_type<LexState::Newline>>
-			>
-		>;
+		//using FinalDfa = StaticDFA<
+		//	generate_expanded_dfa_config_t<
+		//		GenericConfigurationEntry<true, nttp_to_type<LexState::Start>, charset<'a', 'b', 'c'>, nttp_to_type<LexState::Newline>>
+		//	>
+		//>;   
 
-		FinalDfa dfaf{};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		LexingAutomaton__final dfaf{};
 
 
 		std::cout << "[dfaf -> before] result: " << static_cast<int>(dfaf.get_current_state()) << "\n";
