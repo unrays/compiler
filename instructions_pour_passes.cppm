@@ -329,752 +329,589 @@ namespace PASS1_STRING_SPLITTING {
 }
 
 
-namespace PASS2_CONTENT_LEXING {
 
-
-/********************************************************************************/
-
-
-#if 0
-	struct Stateful;
-	struct Stateless;
+/********************************************************************************************************************/
+/********************************************************************************************************************/
 
 
 
-	// StreamReader - stateful
-	// PositionTracker - stateful
-	// Lexer
+// NAMESPACE GLOBAL 
 
 
+struct CompilationUnit {
+	MockModuleShared shared;
 
-	template<typename Policy>
-	struct PositionTrackerr {
+	MockModuleA a;
+	MockModuleB b;
+	MockModuleC c;
+	MockModuleD d;
 
-		// genre en gros, on demande a ce que le contexte donné ait les mêmes données que le contexte stateful du module
-		// ca permet de faire un architecture autant stateless que stateful
+	// contient tous les modules dont le shared par référence
+};
 
 
-		/*    using MemberType = std::conditional_t<KeepMember, int, empty_tag>;
+/************************************************************************************************************/
 
-			  // [[no_unique_address]] ensures empty_tag occupies 0 bytes
-			  [[no_unique_address]] MemberType data;
-		*/
-		
-		struct StatelessData {};
 
-		struct StatefulData {
-			int line;
-			int column;
+struct ParserContext { //mock
+public:
+	explicit constexpr ParserContext(MockModuleA& pa, MockModuleC& pc)
+		: a(pa), c(pc) {
+	}
+
+	MockModuleA& a;
+	MockModuleC& c;
+};
+
+struct ParserContextCompositionPolicy final { // y'aurais moyen de rendre ca générique, à voir!
+private:
+	using Src = CompilationUnit;
+	using Out = ParserContext;
+
+	static constexpr bool is_create_nothrow = noexcept(Out{
+		std::declval<Src&>().a,
+		std::declval<Src&>().c
+	});
+
+public:
+	static constexpr [[nodiscard]] Out compose(Src& unit) noexcept(is_create_nothrow) {
+		return Out{ unit.a, unit.c };
+	}
+
+public:
+	struct contract final {
+		using RequiredSource = Src;
+		using ExpectedOutput = Out;
+	};
+};
+
+
+/************************************************************************************************************/
+
+
+template<typename... CompositionPolicies>
+struct ContextComposer final {
+public:
+	//explicit constexpr ContextComposer(CompilationUnit& unit) {} // en faite une fonction est probablement mieux
+
+
+	// peut etre mettre compilationUnit en template et mettre requirement dans le policy
+
+
+	template<typename Tp>
+	static constexpr [[nodiscard]] decltype(auto) compose(Tp&& composand)
+		noexcept((noexcept(CompositionPolicies::compose(composand)) && ...))
+	{
+		([&]() {
+			static_assert(
+				std::is_same_v<std::decay_t<Tp>, typename CompositionPolicies::contract::RequiredSource>,
+				"Invalid input type: The decayed type of the argument must strictly match"
+				"'RequiredSource' across all composition policies."
+			);
+		}(), ...);
+
+		return std::tuple<typename CompositionPolicies::contract::ExpectedOutput...>{
+			((CompositionPolicies::compose(std::forward<Tp>(composand))), ...)
 		};
+	}
+};
 
-		using DataType = std::conditional_t<std::is_same_v<Policy, Stateful>, StatefulData, StatelessData>;
 
+/************************************************************************************************************/
 
 
-		/*void foo(DataType& p = data) {
+// les sous-contexts ne sont que des vues (stockage par référence) des modules du CompilationUnit
 
-			if constexpr (std::is_same_v<DataType, StatelessData>) {
+template<typename... Models>
+struct ContextProvider {
+public:
+	explicit constexpr ContextProvider(std::tuple<Models...>& ensemble)
+		: contexts(ensemble) {
+	}
 
-			}
-
-		}*/
-
-
-
-		// au pire faire version statique et non statique
-
-
-		// delete le overload si par exemple le Policy est Stateful
-		static void foo_static(StatefulData p) { //passer par ref
-			std::cout << "[STATIC OVERLOAD] p.column -> " << p.column << "\n";
-		}
-
-		void foo() {
-			std::cout << "[NON-STATIC OVERLOAD] p.column -> " << data_test.column << "\n";
-		}
-
-		void foo2(this PositionTrackerr<Stateful> self) {
-
-		}
-
-		void foo2(this PositionTrackerr<Stateless> self, StatefulData p) {
-
-		}
-
-
-		/*void foo(StatefulData& p) {
-			std::cout << "p.column -> " << p.column << "\n";
-		}*/
-
-
-		StatefulData data_test;
-
-		[[no_unique_address]] DataType data;
-
-	};
-#endif
-
-
-/********************************************************************************/
-
-
-	enum struct LexState : int {
-		Invalid = -1,
-		Start = 0,
-
-		Identifier = 10,
-		Operator = 11,
-		Number = 12,
-
-		DelimiterOpaque = 20,
-		DelimiterColon = 21,
-		DelimiterSemi = 22,
-		DelimiterComma = 23,
-
-		DelimiterRParen = 30,
-		DelimiterLParen = 31,
-		DelimiterLCurly = 32,
-		DelimiterRCurly = 33,
-		DelimiterRSquare = 34,
-		DelimiterLSquare = 35,
-		DelimiterRAngle = 36,
-		DelimiterLAngle = 37,
-
-		Preprocessor = 40,
-		Newline = 41,
-		Whitespace = 42
-	};
-
-
-
-
-
-
-
-
-
-
-
-
-/***********************************************************************************/
-/***********************************************************************************/
-/***********************************************************************************/
-/***********************************************************************************/
-
-
-
-
-
-#if 0
-	template<typename Container>
-	struct make_tuple_from_container;
-
-	template<template<auto, typename...> typename Container, bool Condition, typename... Ts>
-	struct make_tuple_from_container<Container<Condition, Ts...>> {
-		using type = std::tuple<Ts...>;
-	};
-
-	template<typename Container>
-	using make_tuple_from_container_t = typename make_tuple_from_container<Container>::type;
-
-
-
-	// le static assert avec ErrMsg est uniquement C++26 alors il faudrait faire genre un SMART_ASSERT
-	// ou quelque chose du genre avec #if c__plusplus
-
-	template<
-		/*ConfigurationEntryConcept*/ typename EntryT,
-		std::size_t               ReqSize,
-		fixed_string			  ErrMsg = "This is the default error message!"
-	>
-	struct ConfigurationConstraint { // changer le nom
-	protected:
-		static_assert(EntryT::size == ReqSize, "Constraint size mismatch!");
-		using tuple_t = make_tuple_from_container_t<EntryT>;
-
-	public:
-		template<std::size_t N>
-		using get_element_at_t = std::tuple_element_t<N, tuple_t>;
-	}; // PEUT ETRE AUSSI FAIRE SYSTÈME QUI VÉRIFIE LES TYPES GENRE FAUT QUE 1 SOIT UN AUTOMATA
-
-	template</*ConfigurationEntryConcept*/ typename EntryT>
-	struct SystemConfigurationMask final : ConfigurationConstraint<EntryT, 2, "Custom mask error message."> {
-	public:
-		using rule_t = typename SystemConfigurationMask::template get_element_at_t<0>;
-		using behavior_t = typename SystemConfigurationMask::template get_element_at_t<1>;
-	};
-
-
-
-	//template<template<typename> typename Mask, typename ConfigTuple>
-	//struct apply_mask_on_container;
-
-	//template< template<typename> typename Mask, template<typename> typename Container, ConfigurationEntryConcept... Ts>
-	//struct apply_mask_on_container<Mask, Container<Ts...>> {
-	//public:
-	//	using as_tuple = std::tuple<Mask<Ts>...>;
-
-
-	//};
-
-
-
-	template<
-		typename ConfigSystem,
-		template<typename> typename Mask,
-		template<typename...> typename TargetContainer
-	>
-	struct apply_mask_on_configuration_system final {
-	public:
-		using type = decltype([]<typename... Ts>(std::tuple<Ts...>) {
-			return TargetContainer<Mask<Ts>...>{};
-		}(std::declval<typename ConfigSystem::as_tuple>()));
-	};
-
-	template<
-		typename ConfigSystem,
-		template<typename> typename Mask,
-		template<typename...> typename TargetContainer = std::tuple
-	>
-	using apply_mask_on_configuration_system_t =
-		typename apply_mask_on_configuration_system<ConfigSystem, Mask, TargetContainer>::type;
-
-
-
-
-
-
-	//genre utiliser SystemConfiguration PAR DESSUS le système SystemConfigurationMask
-
-	// PEUT-ÊTRE FAIRE UNE BASE QUI EFFECTUE LE TRAVAIL EN RAPPORT AVEC LE CONFIG SYSTEM
-
-	template<
-		SystemConfigurationConcept SystemConfig,
-		template<typename> typename MaskModel = SystemConfigurationMask
-	>
-	struct ConfigurableSystem {
-	protected:
-		using masked_configuration_t = apply_mask_on_configuration_system_t<SystemConfig, MaskModel>;
-
-	public:
-		void print_ruleset() {
-			std::cout << "Content of ruleset from ConfigurableSystem<...>: \n";
-
-			std::apply([](auto... m) {
-				((
-					//std::cout << "  entry: " << typeid(decltype(m)).name() << '\n',
-
-					std::cout << "   filtered entry: \n",
-
-					std::cout << "  \trule_t: " << typeid(typename decltype(m)::rule_t).name() << "\n",
-					std::cout << "  \tbehavior_t: " << typeid(typename decltype(m)::behavior_t).name() << "\n\n"
-					), ...);
-				}, ruleset_);
-		}
-
-
-
-	private:
-		masked_configuration_t ruleset_; // peut-être opter plus tard pour std::type_identity mais pour l'instant c'est ok
-
-	};
-
-#endif
-
-
-
-
-
-
-/***********************************************************************************/
-/***********************************************************************************/
-/***********************************************************************************/
-/***********************************************************************************/
-
-
-			// en gros un seul entryconfiguration qui prends variadic, ce système contient sizeof... et un tuple pour tupleelem
-		// pour chaques systèmes, on définit un masque qui, par exemple, définit que using SyntaxicRule = tuple_elmt(1), etc...
-		// et on ignore le reste des arguments, on met soit un warning ou un static_assert directement. 
-
-
-
-	template <auto Value>
-	struct nttp_to_type {
-		static constexpr auto value = Value;
-
-		using value_type = decltype(Value);
-
-		constexpr operator value_type() const noexcept { return value; }
-		constexpr value_type operator()() const noexcept { return value; }
-	};
-
-
-
+public:
 	template<typename T>
-	concept ConfigurationEntryConcept = requires {
-		{ T::condition } -> std::same_as<bool>;
-		{ T::size } -> std::same_as<std::size_t>;
-	};
+	constexpr T& get() noexcept {
+		return std::get<T>(contexts);
+	}
 
-	template<bool Condition, typename... Ts>
-	struct GenericConfigurationEntry {
-		static constexpr bool condition = Condition; // ajouté par la suite, il est probablement a la bonne place
+private:
+	std::tuple<Models...> contexts;
 
-		static constexpr std::size_t size = sizeof...(Ts);
-	};
+};
 
+/********************************************************************************************/
 
+struct Node { // ou plutot NodeHandle
+	std::uint32_t id;
+};
 
+/********************************************************************************************/
 
+struct Token_old {
+	//TokenType type;
 
+	std::uint32_t lexeme; // id dans le string interner. utiliser la technique de UE5 discuté précédemment.
 
+	//std::string lexeme;
+};
 
+/********************************************************************************************/
 
-	template<typename Container>
-	struct make_tuple_from_config_entry;
+struct NodeTokenData { // nom temporaire
+	/*std::array<Token, 25> data; // 25 tokens maximum*/
 
-	template<bool Condition, typename... Ts>
-	struct make_tuple_from_config_entry<GenericConfigurationEntry<Condition, Ts...>> {
-		using type = std::tuple<nttp_to_type<Condition>, Ts...>;
-	};
+	std::uint32_t begin; // 4 bytes
+	std::uint32_t end;
+};
 
-	template<typename Container>
-	using make_tuple_from_config_entry_t = typename make_tuple_from_config_entry<Container>::type;
+/********************************************************************************************/
 
+struct NodeData {
+	NodeType kind;
 
+	// trouver une façon d'y foutre les données
+};
 
+/********************************************************************************************/
 
+struct FlattenedAST {
+	static constexpr std::size_t i = 10;
+	static constexpr std::size_t j = 10;
 
+	std::bitset<i* j> flattened;
+};
 
 
-	template<typename Configuration>
-	struct ModularSystem {
+/********************************************************************************************/
 
-	};
 
 
-	/********************************************************************************/
 
-	// NOUVEAU SYSTÈME DE CONFIG
 
 
 
 
-	template<typename... Ts>
-	using ENABLED = GenericConfigurationEntry<true, Ts...>;
 
-	template<typename... Ts>
-	using DISABLED = GenericConfigurationEntry<false, Ts...>;
 
-	template<auto Condition, typename... Ts>
-	using CONDITIONAL = GenericConfigurationEntry<Condition, Ts...>;
 
 
 
-	template<typename... Ts>
-	struct ConfigurationFilterer;
 
-	template<>
-	struct ConfigurationFilterer<> {
-		using as_tuple = std::tuple<>;
-	};
 
-	template<typename First, typename... Rest> // must be ConfigurationRule
-	struct ConfigurationFilterer<First, Rest...> {
-		using Tail = typename ConfigurationFilterer<Rest...>::as_tuple;
 
-		using as_tuple = std::conditional_t <
-			First::condition,
-			decltype(std::tuple_cat(std::tuple<First>{}, Tail{})),
-			Tail
-		> ;
-	};
 
-	/***/
 
 
 
-	template<typename T>
-	struct enabled_disabled_filter {
-		static constexpr bool value = T::condition;
-	};
 
-	template<typename T, template<typename> typename Predicate>
-	using filter_element_t = std::conditional_t<Predicate<T>::value, std::tuple<T>, std::tuple<>>;
 
-	template<typename T, template<typename> typename Predicate>
-	struct FilterHelper;
 
-	template<typename... Args, template<typename> typename Predicate>
-	struct FilterHelper<std::tuple<Args...>, Predicate> {
-		using type = decltype(std::tuple_cat(std::declval<filter_element_t<Args, Predicate>>()...));
-	};
 
 
+// NAMESPACE GLOBAL suite
 
+enum struct LexState : int {
+	Invalid = -1,
+	Start = 0,
 
+	Identifier = 10,
+	Operator = 11,
+	Number = 12,
 
-	template<typename T>
-	struct transform_configuration_entry_in_tuple;
+	DelimiterOpaque = 20,
+	DelimiterColon = 21,
+	DelimiterSemi = 22,
+	DelimiterComma = 23,
 
-	template<template<auto, typename...> typename Entry, bool Condition, typename... Ts>
-	struct transform_configuration_entry_in_tuple<Entry<Condition, Ts...>> {
-		using type = std::tuple<Ts...>;
-	};
+	DelimiterRParen = 30,
+	DelimiterLParen = 31,
+	DelimiterLCurly = 32,
+	DelimiterRCurly = 33,
+	DelimiterRSquare = 34,
+	DelimiterLSquare = 35,
+	DelimiterRAngle = 36,
+	DelimiterLAngle = 37,
 
-	template<typename T, template<typename> typename Predicate>
-	using transform_element_t = typename Predicate<T>::type;
+	Preprocessor = 40,
+	Newline = 41,
+	Whitespace = 42
+};
 
-	template<typename T, template<typename> typename Predicate>
-	struct TransformationHelper;
 
-	template<typename... Args, template<typename> typename Predicate>
-	struct TransformationHelper<std::tuple<Args...>, Predicate> {
-		using type = std::tuple<transform_element_t<Args, Predicate>...>;
-	};
+/********************************************************************************************/
 
 
+template <auto Value>
+struct nttp_to_type { // changer nom
+	static constexpr auto value = Value;
 
+	using value_type = decltype(Value);
 
+	constexpr operator value_type() const noexcept { return value; }
+	constexpr value_type operator()() const noexcept { return value; }
+};
 
-	template<
-		//template<typename> typename Filter, // peut etre le mettre par defaut
-		template<typename> typename Schema,
-		template<typename> typename Model,
-		typename... Entries // mettre concept pour entries
-	>
-	struct new_ConfigurationSystem {
-	protected:
-		using base_tuple = std::tuple<Entries...>;
 
-		using filtered_tuple = typename FilterHelper<base_tuple, enabled_disabled_filter>::type;
-		using transformed_tuple = typename TransformationHelper<filtered_tuple, transform_configuration_entry_in_tuple>::type;
+/********************************************************************************************/
 
-		/*static constexpr bool schema_validation =
-			[]<typename... Ts>(std::tuple<Ts...>) {
-				return (Schema<Ts>::valid && ...);
-			}(std::declval<transformed_tuple>());*/
 
-		static constexpr bool schema_validation =
-			[]<typename... Ts>(std::tuple<Ts...>) {
-				return (Schema<Ts>::valid && ...);
-			}(transformed_tuple{});
+template<typename T>
+concept ConfigurationEntryConcept = requires {
+	{ T::condition } -> std::same_as<bool>;
+	{ T::size } -> std::same_as<std::size_t>;
+};
 
-		static_assert(
-			schema_validation,
-			"[Config Error] This transformed entry type violates the strict structural requirements defined by your Schema."
-		);
+template<bool Condition, typename... Ts>
+struct GenericConfigurationEntry {
+	static constexpr bool condition = Condition;
 
-		using final_type =
-			decltype([]<typename... Ts>(std::tuple<Ts...>) {
-				return std::tuple<Model<Ts>...>{};
-			}(std::declval<transformed_tuple>()));
+	static constexpr std::size_t size = sizeof...(Ts);
+};
 
-	public:
-		using type = final_type;
 
-	};
+/********************************************************************************************/
 
-	//template<
-	//	template<typename> typename Schema,
-	//	template<typename> typename Model,
-	//	typename... Entries
-	//> using new_ConfigurationSystem_t
 
+template<typename... Ts>
+using ENABLED = GenericConfigurationEntry<true, Ts...>;
 
+template<typename... Ts>
+using DISABLED = GenericConfigurationEntry<false, Ts...>;
 
-	// recoit pleins de config, on crée un tuple contenant toutes les config en filtrant (ENABLED, DISABLED)
-	// ensuite, pour chaques config du tuple, on crée un tuple avec les arguments 
-	// pour chaques entry que l'on transforme, on l'es met dans le schema et model et on les push dans un nouveau tuple.
+template<auto Condition, typename... Ts>
+using CONDITIONAL = GenericConfigurationEntry<Condition, Ts...>;
 
-	// on recoit UN SEUL ENTRY sous forme de tuple (ses arguments)
 
-	// utiliser VALUE_T pour les values (NTTP) dans les tuples
+/********************************************************************************************/
 
-	template<typename entry_tuple>
-	struct ConfigurationSchema {
-		static constexpr bool valid =
-			requires {
-			requires std::tuple_size_v<entry_tuple> == 2;
-		//requires std::same_as<std::tuple_element_t<0, entry_tuple>, MockModuleA>;
-		};
 
-		// JE SAIS PAS SI JE MET LE STATIC ASSERT ICI, SI CA FAIT EN SORTE QUE LA SYNTAXE DEVIENT ROUGE QUAND
-		// JE MET QUELQUE CHOSE DE NON AUTORISÉ, à tester
-	};
+template<typename Container>
+struct make_tuple_from_config_entry;
 
+template<bool Condition, typename... Ts>
+struct make_tuple_from_config_entry<GenericConfigurationEntry<Condition, Ts...>> {
+	using type = std::tuple<nttp_to_type<Condition>, Ts...>;
+};
 
-	template<typename entry_tuple>
-	struct ConfigurationModel final {
-		using rule_t = std::tuple_element_t<0, entry_tuple>;
-		using behavior_t = std::tuple_element_t<1, entry_tuple>;
-	};
+template<typename Container>
+using make_tuple_from_config_entry_t = typename make_tuple_from_config_entry<Container>::type;
 
 
-	template<typename... Entries>
-	using LambdaSystemConfiguration = new_ConfigurationSystem<
-		ConfigurationSchema,
-		ConfigurationModel,
-		Entries...
-	>;
+/********************************************************************************************/
 
-	// ensuite, il ne manque plus qu'a faire plusieurs systemConfig par système genre
-	// par sections
 
+template<typename T, template<typename> typename Predicate>
+using filter_element_t = std::conditional_t<Predicate<T>::value, std::tuple<T>, std::tuple<>>;
 
+template<typename T, template<typename> typename Predicate>
+struct FilterHelper;
 
+template<typename... Args, template<typename> typename Predicate>
+struct FilterHelper<std::tuple<Args...>, Predicate> {
+	using type = decltype(std::tuple_cat(std::declval<filter_element_t<Args, Predicate>>()...));
+};
 
-/***********************************************************************************/
-/***********************************************************************************/
-/***********************************************************************************/
-/***********************************************************************************/
 
-	template<auto...>
-	struct dfa_transition;
+/********************************************************************************************/
 
-	template<auto Source, auto Predicate, auto Target>
-	struct dfa_transition<Source, Predicate, Target> {
 
-		static constexpr auto source = Source;
+template<typename T, template<typename> typename Predicate>
+using transform_element_t = typename Predicate<T>::type;
 
-		static constexpr auto predicate = Predicate;
-		static constexpr auto target = Target;
-	};
+template<typename T, template<typename> typename Predicate>
+struct TransformationHelper;
 
+template<typename... Args, template<typename> typename Predicate>
+struct TransformationHelper<std::tuple<Args...>, Predicate> {
+	using type = std::tuple<transform_element_t<Args, Predicate>...>;
+};
 
-/********************************************************************************/
 
+/********************************************************************************************/
 
-	template<std::size_t R, std::size_t C>
-	struct StaticMatrix final {
-	public:
-		template<typename... Args>
-			requires (sizeof...(Args) == (R * C))
-				  && (std::convertible_to<Args, int> && ...)
+
+template<typename T>
+struct enabled_disabled_filter {
+	static constexpr bool value = T::condition;
+};
+
+template<typename T>
+struct transform_configuration_entry_in_tuple;
+
+template<template<auto, typename...> typename Entry, bool Condition, typename... Ts>
+struct transform_configuration_entry_in_tuple<Entry<Condition, Ts...>> {
+	using type = std::tuple<Ts...>;
+};
+
+
+/********************************************************************************************/
+
+
+template<
+	//template<typename> typename Filter, // peut etre le mettre par defaut
+	template<typename> typename Schema,
+	template<typename> typename Model,
+	typename... Entries // mettre concept pour entries
+>
+struct ConfigurationSystem {
+protected:
+	using base_tuple = std::tuple<Entries...>;
+
+	using filtered_tuple = typename FilterHelper<base_tuple, enabled_disabled_filter>::type;
+	using transformed_tuple = typename TransformationHelper<filtered_tuple, transform_configuration_entry_in_tuple>::type;
+
+	/*static constexpr bool schema_validation =
+		[]<typename... Ts>(std::tuple<Ts...>) {
+			return (Schema<Ts>::valid && ...);
+		}(std::declval<transformed_tuple>());*/
+
+	static constexpr bool schema_validation =
+		[]<typename... Ts>(std::tuple<Ts...>) {
+			return (Schema<Ts>::valid && ...);
+		}(transformed_tuple{});
+
+	static_assert(
+		schema_validation,
+		"[Config Error] This transformed entry type violates the strict structural requirements defined by your Schema."
+	);
+
+	using final_type =
+		decltype([]<typename... Ts>(std::tuple<Ts...>) {
+			return std::tuple<Model<Ts>...>{};
+		}(std::declval<transformed_tuple>()));
+
+public:
+	using type = final_type;
+
+};
+
+
+/********************************************************************************************/
+
+
+template<std::size_t R, std::size_t C>
+struct StaticMatrix final {
+public:
+	template<typename... Args>
+		requires (sizeof...(Args) == (R * C))
+	&& (std::convertible_to<Args, int> && ...)
 		consteval StaticMatrix(Args... entries)
-			: m_{ entries... } {}
+		: m_{ entries... } {
+	}
 
-		consteval StaticMatrix(std::array<int, R * C> arr)
-			: m_{ arr } {}
+	consteval StaticMatrix(std::array<int, R* C> arr)
+		: m_{ arr } {
+	}
 
-	public:
-		[[nodiscard]] constexpr const auto& at(std::size_t i, std::size_t j) const noexcept {
-			#if 0
+public:
+	[[nodiscard]] constexpr const auto& at(std::size_t i, std::size_t j) const noexcept {
+		#if 0
 			if (i >= R || j >= C) [[unlikely]]
 				throw std::out_of_range("Matrix out of bounds.");
-			#endif
+		#endif
 
-			if (i == -1 || i < 0) [[unlikely]] { // pas propre mais fonctionnel
-				static int invalid_state_fallback = -1;
-				return invalid_state_fallback;
-			}
-
-			return m_[i * C + j];
+		if (i == -1 || i < 0) [[unlikely]] { // pas propre mais fonctionnel
+			static int invalid_state_fallback = -1;
+			return invalid_state_fallback;
 		}
 
-		[[nodiscard]] constexpr auto& at(std::size_t i, std::size_t j) noexcept {
-			#if 0
+		return m_[i * C + j];
+	}
+
+	[[nodiscard]] constexpr auto& at(std::size_t i, std::size_t j) noexcept {
+		#if 0
 			if (i >= R || j >= C) [[unlikely]]
 				throw std::out_of_range("Matrix out of bounds.");
-			#endif
+		#endif
 
-			if (i == -1 || i < 0) [[unlikely]] { // pas propre mais fonctionnel
-				static int invalid_state_fallback = -1;
-				return invalid_state_fallback;
-			}
-
-			return m_[i * C + j];
+		if (i == -1 || i < 0) [[unlikely]] { // pas propre mais fonctionnel
+			static int invalid_state_fallback = -1;
+			return invalid_state_fallback;
 		}
 
-		// AJOUTER D'AUTRES CHOSES DANS LE FUTUT MAIS POUR L'INSTANT, C'EST FONCTIONNEL
-		// operators [] ou () sans aucune vérif de bounds
+		return m_[i * C + j];
+	}
 
-	private:
-		std::array<int, R * C> m_;
+	// AJOUTER D'AUTRES CHOSES DANS LE FUTUT MAIS POUR L'INSTANT, C'EST FONCTIONNEL
+	// operators [] ou () sans aucune vérif de bounds
+
+private:
+	std::array<int, R* C> m_;
+};
+
+
+/********************************************************************************************/
+
+
+template<std::size_t RS, std::size_t RC>
+struct FlatMatrixDFA  final {
+protected:
+	using integer_type = int;
+
+	static constexpr integer_type default_state_start = 0;
+	static constexpr integer_type default_invalid_state = -1;
+
+	static constexpr std::array<integer_type, RS* RC> default_matrix_table = []() {
+		std::array<integer_type, RS* RC> temp;
+		temp.fill(-1);
+		return temp;
+	}();
+
+public:
+	explicit consteval FlatMatrixDFA(
+		std::array<integer_type, RS* RC> table = default_matrix_table,
+		integer_type start_state = default_state_start,
+		integer_type invalid_state = default_invalid_state
+	)
+		: matrix_{ table }
+		, start_state_(start_state)
+		, invalid_state_(invalid_state)
+	{
+	}
+
+public:
+	[[nodiscard]] constexpr bool step(int predicate) {
+		if (predicate < 0 || predicate >= RC) [[unlikely]] {
+			return false;
+		}
+
+		previous_state_ = current_state_;
+		current_state_ = matrix_.at(current_state_, predicate);
+
+		return current_state_ != default_invalid_state;
+	}
+
+	[[nodiscard]] constexpr int get_current() const noexcept {
+		return current_state_;
+	}
+
+	[[nodiscard]] constexpr int get_previous() const noexcept {
+		return previous_state_;
+	}
+
+public:
+
+
+
+
+public:
+	void reset() noexcept {
+		current_state_ = start_state_;
+		previous_state_ = start_state_;
+	}
+
+
+private:
+	StaticMatrix<RS, RC> matrix_;
+
+	integer_type start_state_;
+	integer_type invalid_state_;
+
+	integer_type current_state_ = start_state_;
+	integer_type previous_state_ = start_state_;
+
+};
+
+
+/********************************************************************************************/
+
+
+template<typename entry_tuple>
+struct StaticDFAConfigurationSchema {
+	using first_t = std::decay_t<std::tuple_element_t<0, entry_tuple>>;
+	using second_t = std::decay_t<std::tuple_element_t<1, entry_tuple>>;
+	using third_t = std::decay_t<std::tuple_element_t<2, entry_tuple>>;
+
+	static constexpr bool valid =
+		requires {
+			requires std::tuple_size_v<entry_tuple> == 3;
+
+			requires !std::same_as<decltype(first_t::value), decltype(second_t::value)>;
+			requires std::same_as<decltype(first_t::value), decltype(third_t::value)>;
 	};
+};
 
+template<typename entry_tuple>
+struct StaticDFAConfigurationModel final {
+	static constexpr auto source = std::tuple_element_t<0, entry_tuple>::value;
 
-/********************************************************************************/
-
-
-	template<std::size_t RS, std::size_t RC>
-	struct FlatMatrixDFA  final {
-	protected:
-		using integer_type = int;
-
-		static constexpr integer_type default_state_start = 0;
-		static constexpr integer_type default_invalid_state = -1;
-
-		static constexpr std::array<integer_type, RS * RC> default_matrix_table = []() {
-			std::array<integer_type, RS * RC> temp;
-			temp.fill(-1);
-			return temp;
-		}();
-		
-	public:
-		explicit consteval FlatMatrixDFA(
-			std::array<integer_type, RS * RC> table = default_matrix_table,
-			integer_type start_state   = default_state_start,								 
-			integer_type invalid_state = default_invalid_state
-		)	
-			: matrix_{ table }
-			, start_state_(start_state)
-			, invalid_state_(invalid_state)
-		{}
-
-	public:
-		[[nodiscard]] constexpr bool step(int predicate) {
-			if (predicate < 0 || predicate >= RC) [[unlikely]] {
-				return false;
-			}
-
-			previous_state_ = current_state_;
-			current_state_ = matrix_.at(current_state_, predicate);
-
-			return current_state_ != default_invalid_state;
-		}
-
-		[[nodiscard]] constexpr int get_current() const noexcept {
-			return current_state_;
-		}
-
-		[[nodiscard]] constexpr int get_previous() const noexcept {
-			return previous_state_;
-		}
-
-	public:
+	static constexpr auto predicate = std::tuple_element_t<1, entry_tuple>::value;
+	static constexpr auto target = std::tuple_element_t<2, entry_tuple>::value;
+};
 
 
 
 
-	public:
-		void reset() noexcept {
-			current_state_ = start_state_;
-			previous_state_ = start_state_;
-		}
+template<typename... Entries>
+using StaticDfaTransitions = ConfigurationSystem<
+	StaticDFAConfigurationSchema,
+	StaticDFAConfigurationModel,
+	Entries...
+>;
 
+template <typename T>
+constexpr bool is_static_dfa_config_v = false;
 
-	private:
-		StaticMatrix<RS, RC> matrix_;
+template <typename... Entries>
+constexpr bool is_static_dfa_config_v<StaticDfaTransitions<Entries...>> = true;
 
-		integer_type start_state_;
-		integer_type invalid_state_;
-
-		integer_type current_state_  = start_state_;
-		integer_type previous_state_ = start_state_;
-
-	};
-
-
-
-/***********************************************************************************/
+template <typename T>
+concept is_static_dfa_configuration = is_static_dfa_config_v<T>;
 
 
 
 
+template<is_static_dfa_configuration Configuration>
+struct StaticDFA  final { // genre configurable ou modularDfa
+protected:
+	using integer_type = int;
+	using configuration_tuple_t = typename Configuration::type;
 
+protected:
+	using first_entry_type = std::tuple_element_t<0, configuration_tuple_t>;
 
+	using row_type = std::decay_t<decltype(first_entry_type::source)>; // genre remove ou decay
+	using column_type = std::decay_t<decltype(first_entry_type::predicate)>;
 
+	// every entries doivent avoir le meme type pour chacuns. 
 
-	template<typename entry_tuple>
-	struct StaticDFAConfigurationSchema {
-		using first_t = std::decay_t<std::tuple_element_t<0, entry_tuple>>;
-		using second_t = std::decay_t<std::tuple_element_t<1, entry_tuple>>;
-		using third_t = std::decay_t<std::tuple_element_t<2, entry_tuple>>;
+	/*static consteval extract_underlying_subtype() {
 
-		static constexpr bool valid =
-			requires {
-				requires std::tuple_size_v<entry_tuple> == 3;
+	}*/
 
-				requires !std::same_as<decltype(first_t::value), decltype(second_t::value)>;
-				requires std::same_as<decltype(first_t::value), decltype(third_t::value)>;
-		};
-	};
+	/************************************************/
 
-	template<typename entry_tuple>
-	struct StaticDFAConfigurationModel final {
-		static constexpr auto source = std::tuple_element_t<0, entry_tuple>::value;
-
-		static constexpr auto predicate = std::tuple_element_t<1, entry_tuple>::value;
-		static constexpr auto target = std::tuple_element_t<2, entry_tuple>::value;
-	};
-
-
-
-
-	template<typename... Entries>
-	using StaticDfaTransitions = new_ConfigurationSystem<
-		StaticDFAConfigurationSchema,
-		StaticDFAConfigurationModel,
-		Entries...
+	/*template<typename Tp>
+	using extract_underlying_t = typename std::conditional_t<
+		std::is_enum_v<Tp>,
+		std::underlying_type_t<std::decay_t<Tp>>,
+		std::type_identity<Tp>
 	>;
 
-	template <typename T>
-	constexpr bool is_static_dfa_config_v = false;
-
-	template <typename... Entries>
-	constexpr bool is_static_dfa_config_v<StaticDfaTransitions<Entries...>> = true;
-
-	template <typename T>
-	concept is_static_dfa_configuration = is_static_dfa_config_v<T>;
-
-
-	// dfa_transition<LexState::Start, '\n', LexState::Newline>
+	static_assert(
+		((
+			std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().source)>, integer_type>    &&
+			std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().predicate)>, integer_type> &&
+			std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().target)>, integer_type>
+		) && ...),
+		"message"
+	);*/
 
 
+	/************************************************/
 
 
-
-	template<is_static_dfa_configuration Configuration>
-	struct StaticDFA  final { // genre configurable ou modularDfa
-	protected:
-		using integer_type = int;
-		using configuration_tuple_t = typename Configuration::type;
-
-	protected:
-		using first_entry_type = std::tuple_element_t<0, configuration_tuple_t>;
-
-		using row_type = std::decay_t<decltype(first_entry_type::source)>; // genre remove ou decay
-		using column_type = std::decay_t<decltype(first_entry_type::predicate)>;
-
-		// every entries doivent avoir le meme type pour chacuns. 
-
-		/*static consteval extract_underlying_subtype() {
-
-		}*/
-
-		/************************************************/
-
-		/*template<typename Tp>
-		using extract_underlying_t = typename std::conditional_t<
-			std::is_enum_v<Tp>,
-			std::underlying_type_t<std::decay_t<Tp>>,
-			std::type_identity<Tp>
-		>;
-
-		static_assert(
-			((
-				std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().source)>, integer_type>    &&
-				std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().predicate)>, integer_type> &&
-				std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().target)>, integer_type>
-			) && ...),
-			"message"
-		);*/
-
-
-		/************************************************/
-
-
-		/*static_assert(
-			((
-				requires(Entries e) {
-					requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.source)>>;
-					requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.predicate)>>;
-					requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.target)>>;
-				}
-			) && ...),
-			"message"
-		);
+	/*static_assert(
+		((
+			requires(Entries e) {
+				requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.source)>>;
+				requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.predicate)>>;
+				requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.target)>>;
+			}
+		) && ...),
+		"message"
+	);
 */
 
 
@@ -1102,291 +939,337 @@ namespace PASS2_CONTENT_LEXING {
 
 	// static assert genre si il n'est pas convertible en int
 
-	protected:
-		static constexpr std::size_t row_maximum_size = []<typename... Entries>(std::tuple<Entries...>*) {
-			return std::max(
-				std::max({ static_cast<integer_type>(Entries::source)... }),
-				std::max({ static_cast<integer_type>(Entries::target)... })
-			) + 1;
-		}(static_cast<configuration_tuple_t*>(nullptr));
-
-
-		static constexpr std::size_t column_maximum_size = []<typename... Entries>(std::tuple<Entries...>*) {
-			return std::max({ static_cast<integer_type>(Entries::predicate)... }) + 1;
-		}(static_cast<configuration_tuple_t*>(nullptr));
-
-
-
-	
-#if 0
-		static constexpr std::size_t row_maximum_size = std::max(
+protected:
+	static constexpr std::size_t row_maximum_size = []<typename... Entries>(std::tuple<Entries...>*) {
+		return std::max(
 			std::max({ static_cast<integer_type>(Entries::source)... }),
 			std::max({ static_cast<integer_type>(Entries::target)... })
 		) + 1;
+	}(static_cast<configuration_tuple_t*>(nullptr));
 
-		static constexpr std::size_t column_maximum_size = std::max(
-			{ static_cast<integer_type>(Entries::predicate)...
-			}) + 1;
-#endif
 
-	public:
-
-		// pour regrouper avec des functions genre isalpha, il faudrait 
-		// une couche par dessus qui ajoute tous les char compris dans la 
-		// fonction dans la table de la matrice, aussi simple que ca.
-
-		[[nodiscard]] constexpr bool step(column_type predicate) {
-			return dfa_.step(static_cast<integer_type>(predicate));
-		}
-
-		[[nodiscard]] constexpr row_type get_current_state()
-			const noexcept(noexcept(dfa_.get_current()))
-		{
-			return static_cast<row_type>(dfa_.get_current());
-		}
-
-		[[nodiscard]] constexpr row_type get_previous_state()
-			const noexcept(noexcept(dfa_.get_previous()))
-		{
-			return static_cast<row_type>(dfa_.get_previous());
-		}
-
-	public:
-		void reset() noexcept(noexcept(dfa_.reset())) {
-			dfa_.reset();
-		}
-
-	private:
-		static consteval std::array<integer_type, row_maximum_size * column_maximum_size> generateDfaTable() {
-			auto temp = []() {
-				std::array<integer_type, row_maximum_size* column_maximum_size> arr;
-				arr.fill(-1);
-				return arr;
-			}();
-
-			[&]<typename... Entries>(std::tuple<Entries...>*) {
-				((
-					temp[static_cast<integer_type>(Entries::source) * column_maximum_size +
-						static_cast<integer_type>(Entries::predicate)] = static_cast<integer_type>(Entries::target)
-				), ...);
-			}(static_cast<configuration_tuple_t*>(nullptr));
-
-			return temp;
-		}
-
-	private:
-		FlatMatrixDFA<row_maximum_size, column_maximum_size> dfa_{ generateDfaTable() };
-
-	};
+	static constexpr std::size_t column_maximum_size = []<typename... Entries>(std::tuple<Entries...>*) {
+		return std::max({ static_cast<integer_type>(Entries::predicate)... }) + 1;
+	}(static_cast<configuration_tuple_t*>(nullptr));
 
 
 
 
 #if 0
-	template<typename... Entries>
-		//requires (std::is_same_v<int, Entries> || ...)
-	struct StaticDFA  final { // genre configurable ou modularDfa
-	protected:
-		using integer_type = int;
+	static constexpr std::size_t row_maximum_size = std::max(
+		std::max({ static_cast<integer_type>(Entries::source)... }),
+		std::max({ static_cast<integer_type>(Entries::target)... })
+	) + 1;
 
-		using first_entry_type = std::tuple_element_t<0, std::tuple<Entries...>>;
-
-		using row_type = std::decay_t<decltype(first_entry_type::source)>; // genre remove ou decay
-		using column_type = std::decay_t<decltype(first_entry_type::predicate)>;
-
-		// every entries doivent avoir le meme type pour chacuns. 
-
-		/*static consteval extract_underlying_subtype() {
-
-		}*/
-
-		/************************************************/
-
-		/*template<typename Tp>
-		using extract_underlying_t = typename std::conditional_t<
-			std::is_enum_v<Tp>,
-			std::underlying_type_t<std::decay_t<Tp>>,
-			std::type_identity<Tp>
-		>;
-
-		static_assert(
-			((
-				std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().source)>, integer_type>    &&
-				std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().predicate)>, integer_type> &&
-				std::is_convertible_v<extract_underlying_t<decltype(std::declval<Entries>().target)>, integer_type>
-			) && ...),
-			"message"
-		);*/
-
-
-		/************************************************/
-
-
-		/*static_assert(
-			((
-				requires(Entries e) {
-					requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.source)>>;
-					requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.predicate)>>;
-					requires std::constructible_from<integer_type, std::remove_cvref_t<decltype(e.target)>>;
-				}
-			) && ...),
-			"message"
-		);
-*/
-
-
-	/*	static_assert(
-			(std::is_convertible_v<
-				std::conditional_t<
-					std::is_enum_v<std::decay_t<decltype(Entries::source)>>,
-					std::underlying_type_t<std::decay_t<decltype(Entries::source)>>,
-					std::decay_t<decltype(Entries::source)>
-				>
-			, integer_type> && ...),
-
-			"message"
-			
-			
-		);*/
-
-		/*static_assert(
-			std::conditional_t<
-				std::is_enum_v<row_type>,
-				
-			>
-			
-		);*/
-
-		// static assert genre si il n'est pas convertible en int
-
-	protected:
-		static constexpr std::size_t row_maximum_size = std::max(
-			std::max({ static_cast<integer_type>(Entries::source)... }),
-			std::max({ static_cast<integer_type>(Entries::target)... })
-		) + 1;
-
-		static constexpr std::size_t column_maximum_size = std::max(
-			{ static_cast<integer_type>(Entries::predicate)...
+	static constexpr std::size_t column_maximum_size = std::max(
+		{ static_cast<integer_type>(Entries::predicate)...
 		}) + 1;
-
-	public:
-		
-		// pour regrouper avec des functions genre isalpha, il faudrait 
-		// une couche par dessus qui ajoute tous les char compris dans la 
-		// fonction dans la table de la matrice, aussi simple que ca.
-
-		[[nodiscard]] constexpr bool step(column_type predicate) {
-			return dfa_.step(static_cast<integer_type>(predicate));
-		}
-
-		[[nodiscard]] constexpr row_type get_current_state()
-			const noexcept(noexcept(dfa_.get_current()))
-		{
-			return static_cast<row_type>(dfa_.get_current());
-		}
-
-		[[nodiscard]] constexpr row_type get_previous_state()
-			const noexcept(noexcept(dfa_.get_previous()))
-		{
-			return static_cast<row_type>(dfa_.get_previous());
-		}
-
-	public:
-		void reset() noexcept(noexcept(dfa_.reset())) {
-			dfa_.reset();
-		}
-
-	private:
-		static consteval std::array<integer_type, row_maximum_size * column_maximum_size> generateDfaTable() {
-			auto temp = []() {
-				std::array<integer_type, row_maximum_size * column_maximum_size> arr;
-				arr.fill(-1);
-				return arr;
-			}();
-
-			((
-				temp[static_cast<integer_type>(Entries::source) * column_maximum_size + static_cast<integer_type>(Entries::predicate)]
-						= static_cast<integer_type>(Entries::target)
-			), ...);
-
-			return temp;
-		}
-
-	private:
-		FlatMatrixDFA<row_maximum_size, column_maximum_size> dfa_{ generateDfaTable() };
-
-	};
 #endif
-	// backup au cas ou
 
-/***********************************************************************************/
+public:
+
+	// pour regrouper avec des functions genre isalpha, il faudrait 
+	// une couche par dessus qui ajoute tous les char compris dans la 
+	// fonction dans la table de la matrice, aussi simple que ca.
+
+	[[nodiscard]] constexpr bool step(column_type predicate) {
+		return dfa_.step(static_cast<integer_type>(predicate));
+	}
+
+	[[nodiscard]] constexpr row_type get_current_state()
+		const noexcept(noexcept(dfa_.get_current()))
+	{
+		return static_cast<row_type>(dfa_.get_current());
+	}
+
+	[[nodiscard]] constexpr row_type get_previous_state()
+		const noexcept(noexcept(dfa_.get_previous()))
+	{
+		return static_cast<row_type>(dfa_.get_previous());
+	}
+
+public:
+	void reset() noexcept(noexcept(dfa_.reset())) {
+		dfa_.reset();
+	}
+
+private:
+	static consteval std::array<integer_type, row_maximum_size* column_maximum_size> generateDfaTable() {
+		auto temp = []() {
+			std::array<integer_type, row_maximum_size* column_maximum_size> arr;
+			arr.fill(-1);
+			return arr;
+		}();
+
+		[&] <typename... Entries>(std::tuple<Entries...>*) {
+			((
+				temp[static_cast<integer_type>(Entries::source) * column_maximum_size +
+					static_cast<integer_type>(Entries::predicate)] = static_cast<integer_type>(Entries::target)
+			), ...);
+		}(static_cast<configuration_tuple_t*>(nullptr));
+
+		return temp;
+	}
+
+private:
+	FlatMatrixDFA<row_maximum_size, column_maximum_size> dfa_{ generateDfaTable() };
+
+};
 
 
-	template<char... c>
-	struct charset {
-		// principalement pour le Lexer mais peut aussi servir a quelque pars d'autre
-	};
+/********************************************************************************************/
 
 
+template<char... c>
+struct charset {
+	// principalement pour le Lexer mais peut aussi servir a quelque pars d'autre
+};
 
 
-	template</*ConfigurationEntryConcept*/ typename... Entries>
-	struct generate_expanded_dfa_config { // genre Adapter
+template</*ConfigurationEntryConcept*/ typename... Entries>
+struct generate_expanded_dfa_config { // genre Adapter
 
-		using entry_tuple_t = std::tuple<make_tuple_from_config_entry_t<Entries>...>;
+	using entry_tuple_t = std::tuple<make_tuple_from_config_entry_t<Entries>...>;
 
 
-		static constexpr bool respects_all_conditions = []<typename... entry_tuples>(std::tuple<entry_tuples...>*) {
-			return ((
-				std::tuple_size_v<entry_tuples> == 4 &&
-				std::is_same_v<
-					decltype(std::tuple_element_t<1, entry_tuples>::value),
-					decltype(std::tuple_element_t<3, entry_tuples>::value)
-				>
+	static constexpr bool respects_all_conditions = []<typename... entry_tuples>(std::tuple<entry_tuples...>*) {
+		return ((
+			std::tuple_size_v<entry_tuples> == 4 &&
+			std::is_same_v<
+			decltype(std::tuple_element_t<1, entry_tuples>::value),
+			decltype(std::tuple_element_t<3, entry_tuples>::value)
+			>
 
-				// faudrait mettre genre faut que celui du milieu soit le truc qui contient les lettres
+			// faudrait mettre genre faut que celui du milieu soit le truc qui contient les lettres
 
 			) && ...);
-		}(static_cast<entry_tuple_t*>(nullptr));
+	}(static_cast<entry_tuple_t*>(nullptr));
 
-		static_assert(respects_all_conditions, "mettre un message ici");
+	static_assert(respects_all_conditions, "mettre un message ici");
 
-		using generated_tuple_t = decltype([]<typename Tuple>(std::type_identity<Tuple>) {
-			return[]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
-				return std::tuple_cat(
-					[]<typename SingleEntry>() {
-						using CurrentCharset = std::tuple_element_t<2, SingleEntry>;
+	using generated_tuple_t = decltype([]<typename Tuple>(std::type_identity<Tuple>) {
+		return[]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+			return std::tuple_cat(
+				[]<typename SingleEntry>() {
+				using CurrentCharset = std::tuple_element_t<2, SingleEntry>;
 
-						return[]<char... Characters>(charset<Characters...>*) {
-							return std::tuple<
-								GenericConfigurationEntry<
-									std::tuple_element_t<0, SingleEntry>::value,
-									std::tuple_element_t<1, SingleEntry>,
-									nttp_to_type<Characters>,
-									std::tuple_element_t<3, SingleEntry>
-								>...
-							>{};
-						}(static_cast<CurrentCharset*>(nullptr));
-					}.template operator()<Ts>()...
+				return[]<char... Characters>(charset<Characters...>*) {
+					return std::tuple<
+						GenericConfigurationEntry<
+						std::tuple_element_t<0, SingleEntry>::value,
+						std::tuple_element_t<1, SingleEntry>,
+						nttp_to_type<Characters>,
+						std::tuple_element_t<3, SingleEntry>
+						>...
+					>{};
+				}(static_cast<CurrentCharset*>(nullptr));
+			}.template operator() < Ts > ()...
 				);
-			}(std::type_identity<Tuple>{});
-		}(std::type_identity<entry_tuple_t>{}));
+		}(std::type_identity<Tuple>{});
+	}(std::type_identity<entry_tuple_t>{}));
 
 
-		using type = decltype([]<typename... entries>(std::tuple<entries...>*) {
-			return StaticDfaTransitions<entries...>{};
-		}(static_cast<generated_tuple_t*>(nullptr)));
+	using type = decltype([]<typename... entries>(std::tuple<entries...>*) {
+		return StaticDfaTransitions<entries...>{};
+	}(static_cast<generated_tuple_t*>(nullptr)));
 
+};
+
+template<typename... Entries>
+using generate_expanded_dfa_config_t = typename generate_expanded_dfa_config<Entries...>::type;
+
+
+/********************************************************************************************/
+
+
+enum struct TokenKind {
+	Identifier = 0,
+
+	KeywordOpaque = 10,
+	KeywordType = 11,
+	KeywordQualifier = 12,
+	KeywordSpecifier = 13,
+	KeywordModifier = 14,
+	KeywordAlignment = 15,
+	KeywordControl = 16,
+	KeywordAccess = 17,
+
+	DelimiterOpaque = 20,
+	DelimiterColon = 21,
+	DelimiterSemicolon = 22,
+	DelimiterComma = 23,
+
+	DelimiterRParen = 30,
+	DelimiterLParen = 31,
+	DelimiterLCurly = 32,
+	DelimiterRCurly = 33,
+	DelimiterRSquare = 34,
+	DelimiterLSquare = 35,
+	DelimiterRAngle = 36,
+	DelimiterLAngle = 37,
+
+	Preprocessor = 40,
+	Operator = 41,
+	Number = 42,
+	Whitespace = 43,
+	Newline = 44,
+
+	Invalid = 90,
+	Unknown = 91
+};
+
+
+/********************************************************************************************/
+
+
+struct SourceLocation {
+	std::size_t line;   // 8 bytes, std::uint16_t???
+	std::size_t column; // 8 bytes
+};
+
+struct Token {
+	//Token(TokenType k, const char)
+
+
+
+	TokenKind kind;
+
+
+	//const char* lexeme; // string interné
+
+	std::string_view lexeme; // TEMPORAIRE
+
+	SourceLocation location;
+};
+
+
+/********************************************************************************************/
+
+
+template <typename T, typename... AllowedTypes>
+inline constexpr bool is_any_of_v = (std::is_same_v<T, AllowedTypes> || ...);
+
+
+/********************************************************************************************/
+
+
+template<typename entry_tuple>
+struct EnumMapperConfigurationSchema {
+	using first_t = std::decay_t<std::tuple_element_t<0, entry_tuple>>;
+	using second_t = std::decay_t<std::tuple_element_t<1, entry_tuple>>;
+
+	static constexpr bool valid =
+		requires {
+			requires std::tuple_size_v<entry_tuple> == 2;
+
+			//requires std::same_as<first_t, nttp_to_type>; // faut faire un trait
+			//requires std::same_as<second_t, nttp_to_type>;
+
+			requires !std::same_as<decltype(first_t::value), decltype(second_t::value)>;
+			//requires first_t::value != second_t::value; // pas d'operateur == entre les deux...
 	};
+};
 
-	template<typename... Entries>
-	using generate_expanded_dfa_config_t = typename generate_expanded_dfa_config<Entries...>::type;
+template<typename entry_tuple>
+struct EnumMapperConfigurationModel final {
+	static constexpr auto source = std::tuple_element_t<0, entry_tuple>::value;
+	static constexpr auto target = std::tuple_element_t<1, entry_tuple>::value;
+};
+
+template<typename... Entries>
+using EnumMapperConfiguration = ConfigurationSystem<
+	EnumMapperConfigurationSchema,
+	EnumMapperConfigurationModel,
+	Entries...
+>;
+
+template <typename T>
+constexpr bool is_enum_mapper_v = false;
+
+template <typename... Entries>
+constexpr bool is_enum_mapper_v<EnumMapperConfiguration<Entries...>> = true;
+
+template <typename T>
+concept is_enum_mapper_configuration = is_enum_mapper_v<T>;
 
 
 
-/***********************************************************************************/
 
 
+template<is_enum_mapper_configuration Configuration>
+struct EnumMapper {
+protected:
+	using configuration_tuple_t = typename Configuration::type;
+	using rule_model_t = std::tuple_element_t<0, configuration_tuple_t>;
+
+	using first_enum_t = std::decay_t<decltype(rule_model_t::source)>;
+	using second_enum_t = std::decay_t<decltype(rule_model_t::target)>;
+
+protected:
+	static constexpr bool is_valid = []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+		return ((
+			is_any_of_v<std::decay_t<decltype(Ts::source)>, first_enum_t, second_enum_t> &&
+			is_any_of_v<std::decay_t<decltype(Ts::target)>, first_enum_t, second_enum_t>
+		) && ...);
+	}(std::type_identity<configuration_tuple_t>{});
+
+	static_assert(is_valid, "EnumMapper error: Too many distinct state types detected. A maximum of two are allowed.");
+
+protected:
+	template<typename Tp>
+	static constexpr bool is_nothrow_find_target = []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+		return (noexcept(std::declval<Tp>() == Ts::source) && ...);
+	}(std::type_identity<configuration_tuple_t>{});
+
+	template<typename Tp>
+	static constexpr bool is_nothrow_find_source = []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+		return (noexcept(std::declval<Tp>() == Ts::target) && ...);
+	}(std::type_identity<configuration_tuple_t>{});
+
+public:
+	template<typename Tp>
+	[[nodiscard]] static constexpr auto find_target(Tp&& source)
+		noexcept(is_nothrow_find_target<Tp>)
+	{
+		return[&]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+			using TargetType = std::common_type_t<decltype(Ts::target)...>;
+			std::optional<TargetType> result;
+
+			(((source == Ts::source) && (result = Ts::target, true)), ...);
+			if (!result) throw std::runtime_error("Target not found");
+
+			return result.value();
+		}(std::type_identity<configuration_tuple_t>{});
+	}
+
+	template<typename Tp>
+	[[nodiscard]] static constexpr auto find_source(Tp&& target)
+		noexcept(is_nothrow_find_source<Tp>)
+	{
+		return[&]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+			using TargetType = std::common_type_t<decltype(Ts::source)...>;
+			std::optional<TargetType> result;
+
+			(((target == Ts::target) && (result = Ts::source, true)), ...);
+			if (!result) throw std::runtime_error("Source not found");
+
+			return result.value();
+		}(std::type_identity<configuration_tuple_t>{});
+	}
+};
+
+
+/********************************************************************************************/
+
+
+
+/********************************************************************************************************************/
+/********************************************************************************************************************/
+
+
+
+
+namespace PASS2_CONTENT_LEXING {
 
 	using charset_alpha = charset<
 		'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
@@ -1430,65 +1313,6 @@ namespace PASS2_CONTENT_LEXING {
 	using charset_isoperator = charset<
 		'+', '-', '*', '/', '%', '=', '<', '>', '!', '&', '|', '^', '~', '?'
 	>;
-
-
-
-/***********************************************************************************/
-/***********************************************************************************/
-/***********************************************************************************/
-/***********************************************************************************/
-
-
-	template<bool Condition, typename Target, typename Predicate>
-	struct ConfigurationRule {
-		static constexpr bool condition = Condition;
-
-		using target = Target;
-		using predicate = Predicate;
-	};
-
-	template<typename Target, typename Predicate>
-	using ENABLED_old = ConfigurationRule<true, Target, Predicate>;
-
-	template<typename Target, typename Predicate>
-	using DISABLED_old = ConfigurationRule<false, Target, Predicate>;
-
-	template<auto Condition, typename Target, typename Predicate>
-	using CONDITIONAL_old = ConfigurationRule<Condition, Target, Predicate>;
-
-
-/********************************************************************************/
-
-	// pas certain que ca soit encore utilisé
-	template<typename T>
-	concept SystemConfigurationConcept = requires {
-		typename T::as_tuple;
-	} && (requires { typename T::Tail; } || std::same_as<typename T::as_tuple, std::tuple<>>);
-
-
-	template<typename... Ts>
-	struct SystemConfiguration;
-
-	template<>
-	struct SystemConfiguration<> {
-		using as_tuple = std::tuple<>;
-	};
-
-	template<typename First, typename... Rest> // must be ConfigurationRule
-	struct SystemConfiguration<First, Rest...> {
-		using Tail = typename SystemConfiguration<Rest...>::as_tuple;
-
-		using as_tuple = std::conditional_t<
-			First::condition,
-			decltype(std::tuple_cat(std::tuple<First>{}, Tail{})),
-			Tail
-		>;
-	};
-
-
-
-
-
 
 
 /********************************************************************************/
@@ -1568,42 +1392,6 @@ namespace PASS2_CONTENT_LEXING {
 /********************************************************************************/
 
 
-	enum struct TokenKind {
-		Identifier = 0,
-
-		KeywordOpaque = 10,
-		KeywordType = 11,
-		KeywordQualifier = 12,
-		KeywordSpecifier = 13,
-		KeywordModifier = 14,
-		KeywordAlignment = 15,
-		KeywordControl = 16,
-		KeywordAccess = 17,
-
-		DelimiterOpaque = 20,
-		DelimiterColon = 21,
-		DelimiterSemicolon = 22,
-		DelimiterComma = 23,
-
-		DelimiterRParen = 30,
-		DelimiterLParen = 31,
-		DelimiterLCurly = 32,
-		DelimiterRCurly = 33,
-		DelimiterRSquare = 34,
-		DelimiterLSquare = 35,
-		DelimiterRAngle = 36,
-		DelimiterLAngle = 37,
-
-		Preprocessor = 40,
-		Operator = 41,
-		Number = 42,
-		Whitespace = 43,
-		Newline = 44,
-
-		Invalid = 90,
-		Unknown = 91
-	};
-
 
 	[[nodiscard]] constexpr std::string_view TokenKind_to_string(TokenKind kind) noexcept {
 		switch (kind) {
@@ -1640,54 +1428,12 @@ namespace PASS2_CONTENT_LEXING {
 	}
 
 
-/********************************************************************************/
-
-#if 0
-	template<typename T>
-	concept IsaKeywordMatchingPolicy =
-		requires(std::string_view sv) {
-			{ T::matches(sv) } -> std::same_as<bool>;
-	};
-
-
-/********************************************************************************/
-
-
-	export template<typename Predicate, auto Corresponding>
-	struct TokenClassifierContext final {
-		using predicate_type = Predicate;
-		static constexpr TokenKind corresponding = Corresponding;
-	};
-
-	template<typename T>
-	concept is_token_classifier_context = requires {
-		typename T::predicate_type;
-		T::corresponding;
-	};
-
-
-/********************************************************************************/
-
-
-	export template<typename Configuration> // POUR MOCK TEMPORAIRE
-		struct TokenKeywordClassifier final {};
-#endif
-
-
-
-
-
-
-
-
-
 
 
 /***********************************************************************************/
 /***********************************************************************************/
 /***********************************************************************************/
 /***********************************************************************************/
-
 
 
 
@@ -1712,7 +1458,7 @@ namespace PASS2_CONTENT_LEXING {
 	};
 
 	template<typename... Entries>
-	using TokenKeywordCategorizerConfiguration = new_ConfigurationSystem<
+	using TokenKeywordCategorizerConfiguration = ConfigurationSystem<
 		TokenKeywordCategorizerConfigurationSchema,
 		TokenKeywordCategorizerConfigurationModel,
 		Entries...
@@ -1752,61 +1498,10 @@ namespace PASS2_CONTENT_LEXING {
 		}
 	};
 
-#if 0
-	export template<is_token_classifier_context... Contexts>
-	struct TokenKeywordCategorizer final { // re-categorizer?
-		private:
-			template<typename Current, typename... Remaining>
-			[[nodiscard]] static constexpr TokenKind evaluate_recursively(std::string_view sv)
-				noexcept(noexcept(Current::predicate_type::matches(sv)))
-			{
-				if (Current::predicate_type::matches(sv))
-					return Current::corresponding;
-
-				if constexpr (sizeof...(Remaining) == 0)
-					return TokenKind::Unknown;
-				else
-					return evaluate_recursively<Remaining...>(sv);
-			}
-
-		public:
-			[[nodiscard]] static constexpr TokenKind transform(std::string_view sv)
-				noexcept(noexcept(evaluate_recursively<Contexts...>(sv)))
-			{
-				return evaluate_recursively<Contexts...>(sv);
-			}
-	};
-#endif // petite backup
-
-
 /***********************************************************************************/
 /***********************************************************************************/
 /***********************************************************************************/
 /***********************************************************************************/
-
-
-	struct SourceLocation {
-		std::size_t line;   // 8 bytes, std::uint16_t???
-		std::size_t column; // 8 bytes
-	}; 
-
-	struct Token {
-		//Token(TokenType k, const char)
-
-
-
-		TokenKind kind;
-
-
-		//const char* lexeme; // string interné
-
-		std::string_view lexeme; // TEMPORAIRE
-
-		SourceLocation location;
-	};
-
-
-/********************************************************************************/
 
 
 	struct CharReader { // changer le nom genre CharStreamReader
@@ -1902,8 +1597,6 @@ namespace PASS2_CONTENT_LEXING {
 		}
 
 
-
-
 	private:
 		SourceLocation current{}; // current_???
 
@@ -1911,191 +1604,6 @@ namespace PASS2_CONTENT_LEXING {
 
 
 /********************************************************************************/
-
-	// DEVRAIS DEVENIR GENRE UNE CONFIGURATION PAR POLICY OU RULES, QUELQUE CHOSE DU GENRE.
-
-#if 0
-	constexpr TokenKind state_to_token(LexState _) {
-		switch (_) {
-		case LexState::Identifier: return TokenKind::Identifier;
-		case LexState::DelimiterOpaque: return TokenKind::DelimiterOpaque;
-
-		case LexState::Operator: return TokenKind::Operator;
-
-		case LexState::DelimiterColon: return TokenKind::DelimiterColon;
-		case LexState::DelimiterSemi: return TokenKind::DelimiterSemicolon;
-		case LexState::DelimiterComma: return TokenKind::DelimiterComma;
-
-		case LexState::DelimiterLParen: return TokenKind::DelimiterLParen;
-		case LexState::DelimiterRParen: return TokenKind::DelimiterRParen;
-
-		case LexState::DelimiterLCurly: return TokenKind::DelimiterLCurly;
-		case LexState::DelimiterRCurly: return TokenKind::DelimiterRCurly;
-
-		case LexState::DelimiterLSquare: return TokenKind::DelimiterLSquare;
-		case LexState::DelimiterRSquare: return TokenKind::DelimiterRSquare;
-
-		case LexState::DelimiterLAngle: return TokenKind::DelimiterLAngle;
-		case LexState::DelimiterRAngle: return TokenKind::DelimiterRAngle;
-
-		case LexState::Preprocessor: return TokenKind::Preprocessor;
-		case LexState::Newline: return TokenKind::Newline;
-
-		case LexState::Number: return TokenKind::Number;
-		case LexState::Invalid: return TokenKind::Unknown;
-
-		default: return TokenKind::Invalid;
-		}
-	}
-#endif
-
-#if 0
-	// deprecated
-	template<auto Source, auto Target>
-	struct EnumMapperEntry {
-		static constexpr auto source = Source;
-		static constexpr auto target = Target;
-	};
-#endif
-
-
-
-
-
-
-
-	template <typename T, typename... AllowedTypes>
-	inline constexpr bool is_any_of_v = (std::is_same_v<T, AllowedTypes> || ...);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	template<typename entry_tuple>
-	struct EnumMapperConfigurationSchema {
-		using first_t = std::decay_t<std::tuple_element_t<0, entry_tuple>>;
-		using second_t = std::decay_t<std::tuple_element_t<1, entry_tuple>>;
-
-		static constexpr bool valid =
-			requires {
-				requires std::tuple_size_v<entry_tuple> == 2;
-
-				//requires std::same_as<first_t, nttp_to_type>; // faut faire un trait
-				//requires std::same_as<second_t, nttp_to_type>;
-
-				requires !std::same_as<decltype(first_t::value), decltype(second_t::value)>;
-				//requires first_t::value != second_t::value; // pas d'operateur == entre les deux...
-		};
-	};
-
-	template<typename entry_tuple>
-	struct EnumMapperConfigurationModel final {
-		static constexpr auto source = std::tuple_element_t<0, entry_tuple>::value;
-		static constexpr auto target = std::tuple_element_t<1, entry_tuple>::value;
-	};
-
-	template<typename... Entries>
-	using EnumMapperConfiguration = new_ConfigurationSystem<
-		EnumMapperConfigurationSchema,
-		EnumMapperConfigurationModel,
-		Entries...
-	>;
-
-	template <typename T>
-	constexpr bool is_enum_mapper_v = false;
-
-	template <typename... Entries>
-	constexpr bool is_enum_mapper_v<EnumMapperConfiguration<Entries...>> = true;
-
-	template <typename T>
-	concept is_enum_mapper_configuration = is_enum_mapper_v<T>;
-
-
-
-	
-
-	template<is_enum_mapper_configuration Configuration>
-	struct EnumMapper {
-	protected:
-		using configuration_tuple_t = typename Configuration::type;
-		using rule_model_t = std::tuple_element_t<0, configuration_tuple_t>;
-
-		using first_enum_t = std::decay_t<decltype(rule_model_t::source)>;
-		using second_enum_t = std::decay_t<decltype(rule_model_t::target)>;
-
-	protected:
-		static constexpr bool is_valid = []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
-			return ((
-				is_any_of_v<std::decay_t<decltype(Ts::source)>, first_enum_t, second_enum_t> &&
-				is_any_of_v<std::decay_t<decltype(Ts::target)>, first_enum_t, second_enum_t>
-			) && ...);
-		}(std::type_identity<configuration_tuple_t>{});
-
-		static_assert(is_valid, "EnumMapper error: Too many distinct state types detected. A maximum of two are allowed.");
-
-	protected:
-		template<typename Tp>
-		static constexpr bool is_nothrow_find_target = []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
-			return (noexcept(std::declval<Tp>() == Ts::source) && ...);
-		}(std::type_identity<configuration_tuple_t>{});
-
-		template<typename Tp>
-		static constexpr bool is_nothrow_find_source = []<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
-			return (noexcept(std::declval<Tp>() == Ts::target) && ...);
-		}(std::type_identity<configuration_tuple_t>{});
-
-	public:
-		template<typename Tp>
-		[[nodiscard]] static constexpr auto find_target(Tp&& source) 
-			noexcept(is_nothrow_find_target<Tp>)
-		{
-			return [&]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
-				using TargetType = std::common_type_t<decltype(Ts::target)...>;
-				std::optional<TargetType> result;
-
-				(((source == Ts::source) && (result = Ts::target, true)), ...);
-				if (!result) throw std::runtime_error("Target not found");
-
-				return result.value();
-			}(std::type_identity<configuration_tuple_t>{});
-		}
-
-		template<typename Tp>
-		[[nodiscard]] static constexpr auto find_source(Tp&& target)
-			noexcept(is_nothrow_find_source<Tp>)
-		{
-			return[&]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
-				using TargetType = std::common_type_t<decltype(Ts::source)...>;
-				std::optional<TargetType> result;
-
-				(((target == Ts::target) && (result = Ts::source, true)), ...);
-				if (!result) throw std::runtime_error("Source not found");
-
-				return result.value();
-			}(std::type_identity<configuration_tuple_t>{});
-		}
-	};
-
-
-/********************************************************************************/
-
-
-	// LexicalAnalyzer<LexingAutomaton, KeywordClassifier> lexer;
-
-	// template reader & tracker + probablement le automaton
 
 	template<
 		//typename Reader, typename Tracker,
@@ -2121,7 +1629,7 @@ namespace PASS2_CONTENT_LEXING {
 			Tracker tracker{};
 
 
-			std::vector<Token> tokens; // utiliser un allocator
+			std::vector<Token> tokens; // utiliser un allocator OU STD::PMR::VECTOR
 			tokens.reserve(575122); // 1024 1 << 1024 
 
 
@@ -2213,150 +1721,88 @@ namespace PASS2_CONTENT_LEXING {
 }
 
 
+// NAMESPACE GLOBAL
 
 
+namespace COMPILATION_CONTEXT_AND_UNIT_SYSTEM {
 
-
-
-
-
-
-/************************************************************************************************************/
-
-struct CompilationUnit {
-	MockModuleShared shared;
-
-	MockModuleA a;
-	MockModuleB b;
-	MockModuleC c;
-	MockModuleD d;
-
-	// contient tous les modules dont le shared par référence
-};
+	
+}
 
 /************************************************************************************************************/
 
-struct ParserContext { //mock
-public:
-	explicit constexpr ParserContext(MockModuleA& pa, MockModuleC& pc)
-		: a(pa), c(pc) {}
 
-	MockModuleA& a;
-	MockModuleC& c;
-};
-
-struct ParserContextCompositionPolicy final { // y'aurais moyen de rendre ca générique, à voir!
-private:
-	using Src = CompilationUnit;
-	using Out = ParserContext;
-
-	static constexpr bool is_create_nothrow = noexcept(Out{
-		std::declval<Src&>().a,
-		std::declval<Src&>().c
-	});
-
-public:
-	static constexpr [[nodiscard]] Out compose(Src& unit) noexcept(is_create_nothrow) {
-		return Out{ unit.a, unit.c };
-	}
-
-public:
-	struct contract final {
-		using RequiredSource = Src;
-		using ExpectedOutput = Out;
-	};
-};
-
-/************************************************************************************************************/
-
-template<typename... CompositionPolicies>
-struct ContextComposer final {
-public:
-	//explicit constexpr ContextComposer(CompilationUnit& unit) {} // en faite une fonction est probablement mieux
-
-
-	// peut etre mettre compilationUnit en template et mettre requirement dans le policy
-
-
-	template<typename Tp>
-	static constexpr [[nodiscard]] decltype(auto) compose(Tp&& composand)
-		noexcept((noexcept(CompositionPolicies::compose(composand)) && ...))
+/*
+	static data_t& execute(RequiredArgument& arg, RequiredContext& ctx, RequiredDependency& dep)
 	{
-		([&]() {
-			static_assert(
-				std::is_same_v<std::decay_t<Tp>, typename CompositionPolicies::contract::RequiredSource>,
-				"Invalid input type: The decayed type of the argument must strictly match"
-				"'RequiredSource' across all composition policies."
-			);
-		}(), ...);
+		dep.lex(ctx);
 
-		return std::tuple<typename CompositionPolicies::contract::ExpectedOutput...>{
-			((CompositionPolicies::compose(std::forward<Tp>(composand))), ...)
+		return GLOBAL_CHAR;
+	}
+*/
+
+
+namespace PASS_TREE_STRUCTURE_GENERATION {
+
+
+	struct mock_StructuralParserContext {
+	private:
+		std::array<std::byte, 1024> token_stack_buffer; // plutot stocké comme ref depuis le Unit mais pour l'instant, on garde ca comme ca
+
+		std::pmr::monotonic_buffer_resource token_pool{
+			token_stack_buffer.data(),
+			token_stack_buffer.size(),
+			std::pmr::null_memory_resource()
 		};
-	}
-};
+
+
+	private:
+		std::array<std::byte, 1024> structural_nodes_stack_buffer;
+
+		std::pmr::monotonic_buffer_resource structural_nodes_pool{
+			structural_nodes_stack_buffer.data(),
+			structural_nodes_stack_buffer.size(),
+			std::pmr::null_memory_resource()
+		};
+
+
+	public:
+		[[nodiscard]] std::pmr::polymorphic_allocator<std::byte> get_token_allocator() noexcept {
+			return &token_pool;
+		}
+
+
+
+	};
+
+
+	struct StructuralParser {
+
+
+		void foo(const std::pmr::vector<Token>& v, mock_StructuralParserContext& ctx) {
+
+
+
+
+
+
+		}
+
+
+	};
+
+
+
+
+
+
+}
+
+
+
+
 
 /************************************************************************************************************/
-
-// les sous-contexts ne sont que des vues (stockage par référence) des modules du CompilationUnit
-
-template<typename... Models>
-struct ContextProvider {
-public:
-	explicit constexpr ContextProvider(std::tuple<Models...>& ensemble)
-		: contexts(ensemble) {}
-
-public:
-	template<typename T>
-	constexpr T& get() noexcept {
-		return std::get<T>(contexts);
-	}
-
-private:
-	std::tuple<Models...> contexts;
-
-};
-
-/************************************************************************************************************/
-
-struct Node { // ou plutot NodeHandle
-	std::uint32_t id;
-};
-
-struct Token_old {
-	//TokenType type;
-
-	std::uint32_t lexeme; // id dans le string interner. utiliser la technique de UE5 discuté précédemment.
-
-	//std::string lexeme;
-};
-
-struct NodeTokenData { // nom temporaire
-	/*std::array<Token, 25> data; // 25 tokens maximum*/
-
-	std::uint32_t begin; // 4 bytes
-	std::uint32_t end;
-};
-
-struct NodeData {
-	NodeType kind;
-
-	// trouver une façon d'y foutre les données
-};
-
-struct FlattenedAST {
-	static constexpr std::size_t i = 10;
-	static constexpr std::size_t j = 10;
-
-	std::bitset<i * j> flattened;
-};
-
-
-
-
-
-
-
 
 
 
@@ -2414,16 +1860,23 @@ struct FlattenedAST {
 
 export void main_instruction_for_passes() {
 
-	using ContextComposer = ContextComposer<ParserContextCompositionPolicy>;
+	{
+		using namespace COMPILATION_CONTEXT_AND_UNIT_SYSTEM;
+	
 
-	ContextComposer composer;
-	CompilationUnit unit{ 1, 2, 3, 4 };
+		using ContextComposer = ContextComposer<ParserContextCompositionPolicy>;
 
-	auto ensemble = composer.compose(unit);
-	ContextProvider<ParserContext> provider{ ensemble };
+		ContextComposer composer;
+		CompilationUnit unit{ 1, 2, 3, 4 };
 
-	std::cout << typeid(decltype(ensemble)).name() << "\n";
-	std::cout << typeid(decltype(provider.get<ParserContext>())).name() << "\n";
+		auto ensemble = composer.compose(unit);
+		ContextProvider<ParserContext> provider{ ensemble };
+
+		std::cout << typeid(decltype(ensemble)).name() << "\n";
+		std::cout << typeid(decltype(provider.get<ParserContext>())).name() << "\n";
+	}
+
+	
 
 	/*******************************************************************************/
 
@@ -2540,7 +1993,7 @@ export void main_instruction_for_passes() {
 
 
 
-
+#if 0
 		using System = ModularSystem<
 			SystemConfiguration<
 				ENABLED_old		<MockModuleA, MockModuleB>,
@@ -2549,6 +2002,7 @@ export void main_instruction_for_passes() {
 				//CONDITIONAL_old <(sizeof(content) != 0), ContextComposer, CompilationUnit>
 			>
 		>;
+#endif
 
 		/*using ModularTokenKwrdClassifier = TokenKeywordClassifier<
 			SystemConfiguration<
@@ -2622,20 +2076,20 @@ export void main_instruction_for_passes() {
 
 
 
-		using res_t = LambdaSystemConfiguration<
-			GenericConfigurationEntry<true, MockModuleA, PositionTracker>,
-			GenericConfigurationEntry<true, MockModuleB, PositionTracker>
-		>::type;
+		//using res_t = LambdaSystemConfiguration<
+		//	GenericConfigurationEntry<true, MockModuleA, PositionTracker>,
+		//	GenericConfigurationEntry<true, MockModuleB, PositionTracker>
+		//>::type;
 
 
-		std::apply([](auto... args) {
-			((
-				std::cout << typeid(std::remove_cvref_t<decltype(args)>).name() << "\n",
+		//std::apply([](auto... args) {
+		//	((
+		//		std::cout << typeid(std::remove_cvref_t<decltype(args)>).name() << "\n",
 
-				std::cout << "  \trule_t: " << typeid(typename decltype(args)::rule_t).name() << "\n",
-				std::cout << "  \tbehavior_t: " << typeid(typename decltype(args)::behavior_t).name() << "\n\n"
-			), ...);
-		}, res_t{});
+		//		std::cout << "  \trule_t: " << typeid(typename decltype(args)::rule_t).name() << "\n",
+		//		std::cout << "  \tbehavior_t: " << typeid(typename decltype(args)::behavior_t).name() << "\n\n"
+		//	), ...);
+		//}, res_t{});
 
 
 
