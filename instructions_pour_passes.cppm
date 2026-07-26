@@ -1742,6 +1742,84 @@ namespace COMPILATION_CONTEXT_AND_UNIT_SYSTEM {
 */
 
 
+
+/************************************************************************************************************/
+
+
+struct IdGenerator {
+public:
+	std::size_t next() {
+		return cur++;
+	}
+
+private:
+	std::size_t cur;
+};
+
+
+
+enum NodeKind {
+	BinaryExpr,
+	CallExpr,
+	IfStmt,
+	FunctionDecl,
+	More
+};
+
+
+struct NodeEntry {
+	NodeKind kind;
+	std::uint32_t localId;
+};
+
+
+
+struct FunctionDeclData {};
+using FunctionDeclStorage = std::vector<FunctionDeclData>;
+
+
+
+
+
+
+
+// UTILISER UN multi storage comme avant mais tweaké un peu
+
+struct TypedNodeStorage {
+	// qui contient des data
+};
+
+
+
+
+struct FunctionDeclBuilder {
+public:
+	void foo() {
+		// do something
+
+		// et on set + increment le id
+	}
+
+
+
+private:
+	IdGenerator idGenerator{};
+
+
+};
+
+
+
+
+// Typed Node Storages
+
+
+
+
+
+
+
+
 namespace PASS_TREE_STRUCTURE_GENERATION {
 
 
@@ -1782,7 +1860,7 @@ namespace PASS_TREE_STRUCTURE_GENERATION {
 		void foo(const std::pmr::vector<Token>& v, mock_StructuralParserContext& ctx) {
 
 
-
+			// le truc de genre faire un unparsed_expression qui contient n nodes enfants par element de l'expression
 
 
 
