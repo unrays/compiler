@@ -1,5 +1,4 @@
-# `instructions_pour_passes.cppm`
-
+# `instructions_pour_passes.cppm` - read this file to explore the code
 
 > The project was originally intended to be a compiler. However, due to a lack of time and motivation, I decided to focus on my personal life and starting university instead of burning myself out trying to finish this behemoth. I studied compiler theory extensively, understood the pitfalls and the right approaches, and I was, and still am, ready to code a compiler from scratch. Yet, it is a titanic task; working alone, I find it hard to imagine pulling it all off, given the gargantuan architecture I had begun to implement. Perhaps one day I will return to complete it, but in the meantime, here is what I have. I really enjoyed writing this code, though the metaprogramming complexity makes it difficult to make progress. I am proud of it, which is why I am sharing it with you. This code was written during the summer between finishing my college-level programming studies and starting the same program at Université Laval.
 
@@ -173,7 +172,7 @@ std::cout
 ```
 </details>
 
-</br>
+
 
 
 <details>
@@ -869,7 +868,6 @@ public:
 ```
 </details>
 
-</br>
 
 <details>
 <summary>Expand to see the compile-time character sets and C++ keyword classification</summary>
